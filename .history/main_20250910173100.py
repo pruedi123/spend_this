@@ -270,12 +270,8 @@ if spend_diff <= 0:
     st.info("No opportunity cost: the 'Thinking of Spending' amount must be greater than the 'What if I Spend This Instead' amount.")
     spend_diff = 0.0
 
-# Section flags
-has_lump = spend_diff > 0
-
 # Annual contributions from each habit
 annual_contribs = [h["annual"] for h in habits] if 'habits' in locals() else []
-has_habits = any(float(c) > 0 for c in annual_contribs) if annual_contribs else False
 
 # ---------------------------
 # Auto Purchase Strategy: payment streams & residuals (DIFFERENCE-based)
@@ -302,7 +298,6 @@ frugal_vec, num_cars_frugal, last_frugal_start = build_payment_vector(
 
 # Frugal invests the difference each year
 auto_contribs = np.maximum(0.0, non_vec - frugal_vec)
-has_auto = bool(np.any(auto_contribs > 0))
 
 # Residuals at retirement
 frugal_age_at_ret = 0 if last_frugal_start is None else int(years) - int(last_frugal_start)
@@ -313,68 +308,62 @@ non_residual = residual_value(non_price, non_age_at_ret, dep_y1, dep_y2_5, dep_y
 # ---------------------------
 # Opportunity Cost — Lump Sum (Min & Median by Allocation)
 # ---------------------------
-if has_lump:
-    rows = []
-    for alloc in common_allocs:
-        sims_g = build_windows(df_glob, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
-        if sims_g.empty:
-            g_min = g_med = None
-        else:
-            end_g = sims_g["fv_multiple"] * spend_diff
-            g_min = float(end_g.min()); g_med = float(end_g.median())
-        sims_s = build_windows(df_spx, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_spx)
-        if sims_s.empty:
-            s_min = s_med = None
-        else:
-            end_s = sims_s["fv_multiple"] * spend_diff
-            s_min = float(end_s.min()); s_med = float(end_s.median())
-        rows.append({
-            "Allocation": alloc,
-            "Global Minimum Ending Value": (None if g_min is None else f"${g_min:,.0f}"),
-            "SPX Mininimum Ending Value": (None if s_min is None else f"${s_min:,.0f}"),
-            "Global Median Ending Value": (None if g_med is None else f"${g_med:,.0f}"),
-            "SPX Median Ending Value": (None if s_med is None else f"${s_med:,.0f}"),
-        })
-    result_df = pd.DataFrame(rows)[["Allocation","Global Minimum Ending Value","SPX Mininimum Ending Value","Global Median Ending Value","SPX Median Ending Value"]]
-    st.subheader("Opportunity Cost of the Difference for Lump Sum Spending")
-    st.markdown("**Thinking vs What-if difference invested across all historical windows**")
-    st.caption("This model assumes a fixed annual expense ratio of 0.20% for Global and 0.05% for SP500 portfolios.")
-    st.dataframe(result_df, use_container_width=True)
+rows = []
+for alloc in common_allocs:
+    sims_g = build_windows(df_glob, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
+    if sims_g.empty:
+        g_min = g_med = None
+    else:
+        end_g = sims_g["fv_multiple"] * spend_diff
+        g_min = float(end_g.min()); g_med = float(end_g.median())
+    sims_s = build_windows(df_spx, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_spx)
+    if sims_s.empty:
+        s_min = s_med = None
+    else:
+        end_s = sims_s["fv_multiple"] * spend_diff
+        s_min = float(end_s.min()); s_med = float(end_s.median())
+    rows.append({
+        "Allocation": alloc,
+        "Global Minimum Ending Value": (None if g_min is None else f"${g_min:,.0f}"),
+        "SPX Mininimum Ending Value": (None if s_min is None else f"${s_min:,.0f}"),
+        "Global Median Ending Value": (None if g_med is None else f"${g_med:,.0f}"),
+        "SPX Median Ending Value": (None if s_med is None else f"${s_med:,.0f}"),
+    })
+result_df = pd.DataFrame(rows)[["Allocation","Global Minimum Ending Value","SPX Mininimum Ending Value","Global Median Ending Value","SPX Median Ending Value"]]
+st.subheader("Opportunity Cost of the Difference — Min & Median by Allocation")
+st.markdown("**Thinking vs What-if difference invested across all historical windows**")
+st.caption("This model assumes a fixed annual expense ratio of 0.20% for Global and 0.05% for SP500 portfolios.")
+st.dataframe(result_df, use_container_width=True)
 
-    raw_rows = []
-    for alloc in common_allocs:
-        sims_g = build_windows(df_glob, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
-        sims_s = build_windows(df_spx, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_spx)
-        if sims_g.empty:
-            g_min = g_med = np.nan
-        else:
-            end_g = sims_g["fv_multiple"] * spend_diff
-            g_min = float(end_g.min()); g_med = float(end_g.median())
-        if sims_s.empty:
-            s_min = s_med = np.nan
-        else:
-            end_s = sims_s["fv_multiple"] * spend_diff
-            s_min = float(end_s.min()); s_med = float(end_s.median())
-        raw_rows.append({
-            "Allocation": alloc,
-            "Global Minimum Ending Value": g_min,
-            "SPX Mininimum Ending Value": s_min,
-            "Global Median Ending Value": g_med,
-            "SPX Median Ending Value": s_med,
-        })
-    raw_df = pd.DataFrame(raw_rows)[["Allocation","Global Minimum Ending Value","SPX Mininimum Ending Value","Global Median Ending Value","SPX Median Ending Value"]]
-    st.download_button("Download table (CSV)", data=raw_df.to_csv(index=False).encode("utf-8"), file_name=f"spend_this_min_median_{years}y.csv", mime="text/csv")
-else:
-    # Ensure raw_df exists for downstream guards
-    raw_df = pd.DataFrame()
+raw_rows = []
+for alloc in common_allocs:
+    sims_g = build_windows(df_glob, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
+    sims_s = build_windows(df_spx, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_spx)
+    if sims_g.empty:
+        g_min = g_med = np.nan
+    else:
+        end_g = sims_g["fv_multiple"] * spend_diff
+        g_min = float(end_g.min()); g_med = float(end_g.median())
+    if sims_s.empty:
+        s_min = s_med = np.nan
+    else:
+        end_s = sims_s["fv_multiple"] * spend_diff
+        s_min = float(end_s.min()); s_med = float(end_s.median())
+    raw_rows.append({
+        "Allocation": alloc,
+        "Global Minimum Ending Value": g_min,
+        "SPX Mininimum Ending Value": s_min,
+        "Global Median Ending Value": g_med,
+        "SPX Median Ending Value": s_med,
+    })
+raw_df = pd.DataFrame(raw_rows)[["Allocation","Global Minimum Ending Value","SPX Mininimum Ending Value","Global Median Ending Value","SPX Median Ending Value"]]
+st.download_button("Download table (CSV)", data=raw_df.to_csv(index=False).encode("utf-8"), file_name=f"spend_this_min_median_{years}y.csv", mime="text/csv")
 
 # ---------------------------
 # Opportunity Cost — Annual Habit Only (per habit)
 # ---------------------------
 raw_rows_annual_list = []
 for idx, annual_contrib in enumerate(annual_contribs, start=1):
-    if float(annual_contrib) <= 0:
-        continue
     rows_annual = []
     raw_rows_annual = []
     for alloc in common_allocs:
@@ -426,22 +415,21 @@ if int(years) > 0:
     year_idx = np.arange(1, _n_years + 1)
 
     # Auto payments schedule (both buyers) and invested difference
-    if has_auto:
-        auto_sched_df = pd.DataFrame({
-            "Year": year_idx,
-            "Non-frugal Payment ($/yr)": non_vec[:_n_years] if non_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
-            "Frugal Payment ($/yr)": frugal_vec[:_n_years] if frugal_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
-            "Invested Difference ($/yr)": auto_contribs[:_n_years] if auto_contribs.size >= _n_years else np.zeros(_n_years, dtype=float),
-        })
-        auto_sched_disp = auto_sched_df.copy()
-        for col in ["Non-frugal Payment ($/yr)", "Frugal Payment ($/yr)", "Invested Difference ($/yr)"]:
-            auto_sched_disp[col] = auto_sched_disp[col].map(lambda v: f"${v:,.0f}")
-        st.subheader("Frugal Contributions — Auto Payments (Year by Year)")
-        st.dataframe(auto_sched_disp, use_container_width=True)
-        st.download_button("Download auto payments schedule (CSV)", data=auto_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_auto_payments_schedule_{_n_years}y.csv", mime="text/csv")
+    auto_sched_df = pd.DataFrame({
+        "Year": year_idx,
+        "Non-frugal Payment ($/yr)": non_vec[:_n_years] if non_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
+        "Frugal Payment ($/yr)": frugal_vec[:_n_years] if frugal_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
+        "Invested Difference ($/yr)": auto_contribs[:_n_years] if auto_contribs.size >= _n_years else np.zeros(_n_years, dtype=float),
+    })
+    auto_sched_disp = auto_sched_df.copy()
+    for col in ["Non-frugal Payment ($/yr)", "Frugal Payment ($/yr)", "Invested Difference ($/yr)"]:
+        auto_sched_disp[col] = auto_sched_disp[col].map(lambda v: f"${v:,.0f}")
+    st.subheader("Frugal Contributions — Auto Payments (Year by Year)")
+    st.dataframe(auto_sched_disp, use_container_width=True)
+    st.download_button("Download auto payments schedule (CSV)", data=auto_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_auto_payments_schedule_{_n_years}y.csv", mime="text/csv")
 
     # Annual habits schedules (one column per habit) + total
-    if has_habits:
+    if 'habits' in locals() and len(habits) > 0:
         habit_cols = {}
         habit_col_names = []
         for i, h in enumerate(habits, start=1):
@@ -458,21 +446,19 @@ if int(years) > 0:
         st.dataframe(habits_sched_disp, use_container_width=True)
         st.download_button("Download habits schedule (CSV)", data=habits_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_habits_schedule_{_n_years}y.csv", mime="text/csv")
 
-        # Combined only if at least one of auto/habits is present
         total_habits_vec = habits_sched_df["Total Habits ($/yr)"].values if habit_col_names else np.zeros(_n_years, dtype=float)
-        if has_auto or has_habits:
-            combined_df = pd.DataFrame({
-                "Year": year_idx,
-                "Auto Payment Invested ($/yr)": (auto_sched_df["Invested Difference ($/yr)"].values if has_auto else np.zeros(_n_years, dtype=float)),
-                "Total Habits ($/yr)": total_habits_vec,
-            })
-            combined_df["Total Frugal Contributions ($/yr)"] = combined_df["Auto Payment Invested ($/yr)"] + combined_df["Total Habits ($/yr)"]
-            combined_disp = combined_df.copy()
-            for cn in ["Auto Payment Invested ($/yr)", "Total Habits ($/yr)", "Total Frugal Contributions ($/yr)"]:
-                combined_disp[cn] = combined_disp[cn].map(lambda v: f"${v:,.0f}")
-            st.subheader("Frugal Contributions — Combined (Year by Year)")
-            st.dataframe(combined_disp, use_container_width=True)
-            st.download_button("Download combined frugal contributions (CSV)", data=combined_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_contributions_combined_{_n_years}y.csv", mime="text/csv")
+        combined_df = pd.DataFrame({
+            "Year": year_idx,
+            "Auto Payment Invested ($/yr)": auto_sched_df["Invested Difference ($/yr)"].values,
+            "Total Habits ($/yr)": total_habits_vec,
+        })
+        combined_df["Total Frugal Contributions ($/yr)"] = combined_df["Auto Payment Invested ($/yr)"] + combined_df["Total Habits ($/yr)"]
+        combined_disp = combined_df.copy()
+        for cn in ["Auto Payment Invested ($/yr)", "Total Habits ($/yr)", "Total Frugal Contributions ($/yr)"]:
+            combined_disp[cn] = combined_disp[cn].map(lambda v: f"${v:,.0f}")
+        st.subheader("Frugal Contributions — Combined (Year by Year)")
+        st.dataframe(combined_disp, use_container_width=True)
+        st.download_button("Download combined frugal contributions (CSV)", data=combined_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_contributions_combined_{_n_years}y.csv", mime="text/csv")
 
 # ==============================================
 # Opportunity Cost — Auto Payments Invested (Min & Median by Allocation)
@@ -558,35 +544,34 @@ median_withdrawal_s = _lookup_median_withdrawal(df_withdrawals_spx, int(retireme
 
 # Lump Sum median withdrawal
 lump_rows = []
-if has_lump and not raw_df.empty:
-    if median_withdrawal_g is not None:
-        base_g = float(np.nanmax(raw_df["Global Median Ending Value"].values)) if not raw_df.empty else np.nan
-        ann_g = median_withdrawal_g * base_g if (median_withdrawal_g <= 1.0 and np.isfinite(base_g)) else median_withdrawal_g
-        lump_rows.append({"Portfolio": "Global", "Years": int(retirement_years), "Annual Retirement Income (Historically)": ann_g, "Total Median Retirement Income": ann_g * int(retirement_years)})
-    if median_withdrawal_s is not None:
-        base_s = float(np.nanmax(raw_df["SPX Median Ending Value"].values)) if not raw_df.empty else np.nan
-        ann_s = median_withdrawal_s * base_s if (median_withdrawal_s <= 1.0 and np.isfinite(base_s)) else median_withdrawal_s
-        lump_rows.append({"Portfolio": "SPX", "Years": int(retirement_years), "Annual Retirement Income (Historically)": ann_s, "Total Median Retirement Income": ann_s * int(retirement_years)})
-    if has_lump and not raw_df.empty and lump_rows:
-        lump_df = pd.DataFrame(lump_rows)
-        lump_disp = lump_df.copy()
-        lump_disp["Annual Retirement Income (Historically)"] = lump_disp["Annual Retirement Income (Historically)"].map(lambda v: f"${v:,.0f}")
-        lump_disp["Total Median Retirement Income"] = lump_disp["Total Median Retirement Income"].map(lambda v: f"${v:,.0f}")
-        st.subheader("Median Withdrawal — Lump Sum")
-        st.caption("Ending portfolio uses the highest median ending value across allocations; withdrawals assume a 60% Equity / 40% Fixed portfolio. Expenses: Global 20 bps; SPX 5 bps.")
-        st.dataframe(lump_disp, use_container_width=True)
-        st.download_button("Download median withdrawal — Lump Sum (CSV)", data=lump_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_lumpsum_{years}y.csv", mime="text/csv")
-        try:
-            for _, r in lump_df.iterrows():
-                total_val = float(r["Total Median Retirement Income"])
-                p = str(r.get("Portfolio", "")).strip().lower()
-                portfolio_label = "the Global portfolio" if p == "global" else "the S&P 500 (SPX) portfolio"
-                _msg = (f"Spending ${thinking_spend:,.0f} instead of ${whatif_spend:,.0f} cost you ${total_val:,.0f} in lifetime retirement income by investing in {portfolio_label}.")
-                st.markdown(f"<div style='white-space: normal; word-break: normal; overflow-wrap: break-word;'><strong>{_msg}</strong></div>", unsafe_allow_html=True)
-        except Exception:
-            pass
-    else:
+if median_withdrawal_g is not None:
+    base_g = float(np.nanmax(raw_df["Global Median Ending Value"].values)) if not raw_df.empty else np.nan
+    ann_g = median_withdrawal_g * base_g if (median_withdrawal_g <= 1.0 and np.isfinite(base_g)) else median_withdrawal_g
+    lump_rows.append({"Portfolio": "Global", "Years": int(retirement_years), "Annual Retirement Income (Historically)": ann_g, "Total Median Retirement Income": ann_g * int(retirement_years)})
+if median_withdrawal_s is not None:
+    base_s = float(np.nanmax(raw_df["SPX Median Ending Value"].values)) if not raw_df.empty else np.nan
+    ann_s = median_withdrawal_s * base_s if (median_withdrawal_s <= 1.0 and np.isfinite(base_s)) else median_withdrawal_s
+    lump_rows.append({"Portfolio": "SPX", "Years": int(retirement_years), "Annual Retirement Income (Historically)": ann_s, "Total Median Retirement Income": ann_s * int(retirement_years)})
+if lump_rows:
+    lump_df = pd.DataFrame(lump_rows)
+    lump_disp = lump_df.copy()
+    lump_disp["Annual Retirement Income (Historically)"] = lump_disp["Annual Retirement Income (Historically)"].map(lambda v: f"${v:,.0f}")
+    lump_disp["Total Median Retirement Income"] = lump_disp["Total Median Retirement Income"].map(lambda v: f"${v:,.0f}")
+    st.subheader("Median Withdrawal — Lump Sum")
+    st.caption("Ending portfolio uses the highest median ending value across allocations; withdrawals assume a 60% Equity / 40% Fixed portfolio. Expenses: Global 20 bps; SPX 5 bps.")
+    st.dataframe(lump_disp, use_container_width=True)
+    st.download_button("Download median withdrawal — Lump Sum (CSV)", data=lump_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_lumpsum_{years}y.csv", mime="text/csv")
+    try:
+        for _, r in lump_df.iterrows():
+            total_val = float(r["Total Median Retirement Income"])
+            p = str(r.get("Portfolio", "")).strip().lower()
+            portfolio_label = "the Global portfolio" if p == "global" else "the S&P 500 (SPX) portfolio"
+            _msg = (f"Spending ${thinking_spend:,.0f} instead of ${whatif_spend:,.0f} cost you ${total_val:,.0f} in lifetime retirement income by investing in {portfolio_label}.")
+            st.markdown(f"<div style='white-space: normal; word-break: normal; overflow-wrap: break-word;'><strong>{_msg}</strong></div>", unsafe_allow_html=True)
+    except Exception:
         pass
+else:
+    st.info("Median withdrawals not found for Lump Sum scenario.")
 
 # Annual Habit Only median withdrawal tables (per habit)
 for idx, raw_rows_annual in enumerate(raw_rows_annual_list, start=1):
@@ -705,13 +690,6 @@ try:
             auto_annual_s = median_withdrawal_s * base_s_auto
         else:
             auto_annual_s = float(median_withdrawal_s)
-
-    # Skip grand total if all components are zero
-    if not any([
-        annual_lump_g, habits_total_g, auto_annual_g,
-        annual_lump_s, habits_total_s, auto_annual_s,
-    ]):
-        raise RuntimeError("No components to summarize")
 
     grand_rows = [
         {

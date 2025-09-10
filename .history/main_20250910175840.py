@@ -283,7 +283,7 @@ has_habits = any(float(c) > 0 for c in annual_contribs) if annual_contribs else 
 financed_first = max(0.0, float(non_price) - float(non_down))
 monthly_pmt_first = pmt(principal=financed_first, apr_pct=float(non_rate), years_term=int(non_term))
 annual_pmt_first = monthly_pmt_first * 12.0
-monthly_pmt = monthly_pmt_first
+monthly_pmt = monthly_pmt_firstOpportunity Cost of the Difference — Min & Median by Allocation
 annual_pmt = annual_pmt_first
 
 non_vec, num_cars_non, last_non_start = build_payment_vector(
@@ -336,7 +336,7 @@ if has_lump:
             "SPX Median Ending Value": (None if s_med is None else f"${s_med:,.0f}"),
         })
     result_df = pd.DataFrame(rows)[["Allocation","Global Minimum Ending Value","SPX Mininimum Ending Value","Global Median Ending Value","SPX Median Ending Value"]]
-    st.subheader("Opportunity Cost of the Difference for Lump Sum Spending")
+    st.subheader("Opportunity Cost of the Difference for Lump Sum Spend")
     st.markdown("**Thinking vs What-if difference invested across all historical windows**")
     st.caption("This model assumes a fixed annual expense ratio of 0.20% for Global and 0.05% for SP500 portfolios.")
     st.dataframe(result_df, use_container_width=True)

@@ -336,7 +336,7 @@ if has_lump:
             "SPX Median Ending Value": (None if s_med is None else f"${s_med:,.0f}"),
         })
     result_df = pd.DataFrame(rows)[["Allocation","Global Minimum Ending Value","SPX Mininimum Ending Value","Global Median Ending Value","SPX Median Ending Value"]]
-    st.subheader("Opportunity Cost of the Difference for Lump Sum Spending")
+    st.subheader("Opportunity Cost of the Difference for Lump Sum Spending (Min & Median by Allocation)")
     st.markdown("**Thinking vs What-if difference invested across all historical windows**")
     st.caption("This model assumes a fixed annual expense ratio of 0.20% for Global and 0.05% for SP500 portfolios.")
     st.dataframe(result_df, use_container_width=True)
