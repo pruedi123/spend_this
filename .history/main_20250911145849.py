@@ -1004,37 +1004,6 @@ except Exception:
 # Plan Summary (Plain Language)
 # ---------------------------
 try:
-    # Hover note explaining how summary values are derived (CSS tooltip for reliable hover)
-    import html as _html
-    _hover_text = (
-        "The values outputted below assume you invest the difference in spending amounts in either the Global Strategy or SP500 Index Strategy that represented the highest ending value at the beginning of retirement.\n\n"
-        "At retirement, we assume a Global or SP500 strategy that is 60% Stocks / 40% Bonds and utilizes Monte Carlo simulation to adjust spending.\n\n"
-        "We run the results against historical returns for both Global and SP500 portfolios (60/40 allocation). To determine the annual spending, we use the Median average annual spending result to get the spending percentage of a portfolio by multiplying that withdrawal percentage by the Median Ending Value from the investment account where the spending differences are invested.\n\n"
-        "For example, if the Median Global ending value is $100,000 and the retirement period is 30 years, the withdrawal rate that represents the median average (real) annual spending withdrawal is 8.6%. Therefore, historically speaking, the median average annual spending in a global portfolio of 60% stocks and 40% bonds would have been $8,600 per year, or $258,000 in lifetime (real) spending.\n\n"
-        "To learn more about the Monte Carlo simulator, see my Monte Carlo simulation app 'Do Monte Carlo guardrails work?' on my website."
-    )
-    _hover_html = _html.escape(_hover_text).replace("\n\n", "<br/><br/>").replace("\n", "<br/>")
-    st.markdown(
-        """
-        <style>
-        .ttx { position: relative; display: inline-block; cursor: help; }
-        .ttx .ttx-box {
-            visibility: hidden; opacity: 0; transition: opacity 0.15s ease-in;
-            position: absolute; z-index: 1000; top: 1.6rem; left: 0;
-            width: min(680px, 90vw); padding: 10px 12px; border-radius: 6px;
-            background: #111; color: #fff; text-align: left; box-shadow: 0 6px 16px rgba(0,0,0,0.35);
-            line-height: 1.45; font-size: 0.9rem;
-        }
-        .ttx:hover .ttx-box { visibility: visible; opacity: 1; }
-        </style>
-        <div style='margin: 0.5rem 0 0.25rem 0;'>
-          <span class='ttx'>ℹ️ <u>How to interpret these values (hover)</u>
-            <div class='ttx-box'>%s</div>
-          </span>
-        </div>
-        """ % _hover_html,
-        unsafe_allow_html=True
-    )
     st.subheader("Plan Summary (Plain Language)")
 
     def _fmt(x):
@@ -1100,28 +1069,14 @@ try:
                         tot_val = float(np.nansum([float(r.get(c, 0.0) or 0.0) for c in tot_cols]))
                     else:
                         tot_val = float(ann_val) * float(yrs_int)
-                p_lower = p.lower()
-                if p_lower == "global":
-                    summary_lines.append(
-                        f"By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                    )
-                elif p_lower in ("spx", "sp500", "s&p 500", "s&p500"):
-                    summary_lines.append(
-                        f"By following a more frugal approach to spending decisions, the invested difference (historically) in an SP500 index fund would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                    )
-                else:
-                    summary_lines.append(
-                        f"For {p}, the invested difference (historically) would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                    )
+                summary_lines.append(f"- **{p} (Grand Total):** annual: {_fmt(ann_val)}; total: {_fmt(tot_val)}")
     except Exception:
         pass
 
-    # Render as plain text to avoid markdown/HTML wrapping issues
-    import re as _re
-    summary_plain = "\n".join([_re.sub(r"\*", "", line) for line in summary_lines])
-    st.text(summary_plain)
+    # Render
+    st.markdown("\n".join(summary_lines))
 
     # Small footnote on assumptions
-    st.caption("Assumptions: annual contributions invested at end-of-year; down-payment differences at beginning-of-year; results shown for Global (20 bps) and S&P 500 (5 bps) portfolios using historical windows.")
+    st.caption("Assumptions: annual contributions invested at end‑of‑year; down‑payment differences at beginning‑of‑year; results shown for Global (20 bps) and S&P 500 (5 bps) portfolios using historical windows.")
 except Exception:
     pass

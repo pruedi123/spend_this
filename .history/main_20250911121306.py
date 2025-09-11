@@ -169,8 +169,8 @@ with st.sidebar:
     retirement_years = st.slider("Number of Years in Retirement", 20, 35, 30, 1)
 
     with st.expander("Lump Sum", expanded=False):
-        thinking_spend = st.number_input("Thinking of Spending ($)", min_value=0, value=0, step=500)
-        whatif_spend = st.number_input("What if I Spend This Instead ($)", min_value=0, value=0, step=500)
+        thinking_spend = st.number_input("Thinking of Spending ($)", min_value=0, value=15000, step=500)
+        whatif_spend = st.number_input("What if I Spend This Instead ($)", min_value=0, value=5000, step=500)
         lump_diff = max(0, thinking_spend - whatif_spend)
         st.caption(f"**Lump-sum difference:** ${lump_diff:,.0f}")
 
@@ -200,8 +200,8 @@ with st.sidebar:
         frugal_term = st.slider("Frugal finance term (years)", 1, 10, 5)
         apply_residual_dp = st.checkbox("Use residual value as next down payment", value=True)
 
-        non_price = st.number_input("Non-frugal car price ($)", min_value=0, value=0, step=1000)
-        non_down = st.number_input("Non-frugal down payment ($)", min_value=0, value=0, step=1000)
+        non_price = st.number_input("Non-frugal car price ($)", min_value=0, value=100000, step=1000)
+        non_down = st.number_input("Non-frugal down payment ($)", min_value=0, value=30000, step=1000)
         non_rate = st.number_input("Finance rate (APR %)", min_value=0.0, max_value=25.0, value=5.0, step=0.25)
         non_term = st.slider("Finance term (years)", 1, 10, 5)
         _financed_preview = max(0.0, float(non_price) - float(non_down))
@@ -218,8 +218,8 @@ with st.sidebar:
 
     st.markdown("---")
     with st.expander("Housing Strategy", expanded=False):
-        house_spender_price = st.number_input("Spender home price ($)", min_value=0, value=0, step=10000)
-        house_frugal_price = st.number_input("Frugal home price ($)", min_value=0, value=0, step=10000)
+        house_spender_price = st.number_input("Spender home price ($)", min_value=0, value=500000, step=10000)
+        house_frugal_price = st.number_input("Frugal home price ($)", min_value=0, value=300000, step=10000)
 
         # Down payment controls
         house_down_pct = st.slider("Down payment % (applies if overrides are 0)", 0, 100, 20)
@@ -480,26 +480,9 @@ for idx, annual_contrib in enumerate(annual_contribs, start=1):
         st.caption(
             f"Annual investment = (${h['daily']:,.2f} − ${h['frugal']:,.2f}) × {int(h['dpw'])} × {int(h['wpy'])} = **${h['annual']:,.0f} per year**, net of the same expenses (Global 20 bps; SPX 5 bps)."
         )
-        # Highlight max per column (based on raw numeric values)
+        st.dataframe(result_annual_df, use_container_width=True)
         raw_annual_df = pd.DataFrame(raw_rows_annual)[["Allocation","Global Minimum Ending Value","SPX Mininimum Ending Value","Global Median Ending Value","SPX Median Ending Value"]]
-        _cols_to_highlight = ["Global Minimum Ending Value","SPX Mininimum Ending Value","Global Median Ending Value","SPX Median Ending Value"]
-        def _style_max(_):
-            styles = pd.DataFrame('', index=result_annual_df.index, columns=result_annual_df.columns)
-            try:
-                for c in _cols_to_highlight:
-                    m = np.nanmax(pd.to_numeric(raw_annual_df[c], errors="coerce").values)
-                    hits = pd.to_numeric(raw_annual_df[c], errors="coerce") == m
-                    styles.loc[hits.index[hits], c] = 'background-color: #e6ffed; font-weight: 700'
-            except Exception:
-                pass
-            return styles
-        st.dataframe(result_annual_df.style.apply(_style_max, axis=None), use_container_width=True)
-        st.download_button(
-            f"Download annual habit {idx} table (CSV)",
-            data=raw_annual_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"spend_this_annual_only_habit{idx}_{years}y.csv",
-            mime="text/csv"
-        )
+        st.download_button(f"Download annual habit {idx} table (CSV)", data=raw_annual_df.to_csv(index=False).encode("utf-8"), file_name=f"spend_this_annual_only_habit{idx}_{years}y.csv", mime="text/csv")
     else:
         st.info(f"No results to display for the annual habit {idx} section.")
 
@@ -752,7 +735,7 @@ if has_lump and not raw_df.empty:
                 total_val = float(r["Total Median Retirement Income"])
                 p = str(r.get("Portfolio", "")).strip().lower()
                 portfolio_label = "the Global portfolio" if p == "global" else "the S&P 500 (SPX) portfolio"
-                _msg = (f"Spending ${thinking_spend:,.0f} instead of ${whatif_spend:,.0f} cost you ${total_val:,.0f} in lifetime retirement income by investing the difference in spending in {portfolio_label}.")
+                _msg = (f"Spending ${thinking_spend:,.0f} instead of ${whatif_spend:,.0f} cost you ${total_val:,.0f} in lifetime retirement income by investing in {portfolio_label}.")
                 st.markdown(f"<div style='white-space: normal; word-break: normal; overflow-wrap: break-word;'><strong>{_msg}</strong></div>", unsafe_allow_html=True)
         except Exception:
             pass
@@ -791,7 +774,7 @@ for idx, raw_rows_annual in enumerate(raw_rows_annual_list, start=1):
                 total_val = float(r["Total Median Retirement Income"])
                 p = str(r.get("Portfolio", "")).strip().lower()
                 portfolio_label = "the Global portfolio" if p == "global" else "the S&P 500 (SPX) portfolio"
-                _msg_h = (f"Spending ${h['daily']:,.2f} instead of ${h['frugal']:,.2f} cost you ${total_val:,.0f} in lifetime retirement income by investing the difference in spending amounts in {portfolio_label}.")
+                _msg_h = (f"Spending ${h['daily']:,.2f} instead of ${h['frugal']:,.2f} cost you ${total_val:,.0f} in lifetime retirement income by investing in {portfolio_label}.")
                 st.markdown(f"<div style='white-space: normal; word-break: normal; overflow-wrap: break-word;'><strong>{_msg_h}</strong></div>", unsafe_allow_html=True)
         except Exception:
             pass
@@ -996,132 +979,5 @@ try:
         file_name=f"median_withdrawal_grand_total_{years}y.csv",
         mime="text/csv"
     )
-
-except Exception:
-    pass
-
-# ---------------------------
-# Plan Summary (Plain Language)
-# ---------------------------
-try:
-    # Hover note explaining how summary values are derived (CSS tooltip for reliable hover)
-    import html as _html
-    _hover_text = (
-        "The values outputted below assume you invest the difference in spending amounts in either the Global Strategy or SP500 Index Strategy that represented the highest ending value at the beginning of retirement.\n\n"
-        "At retirement, we assume a Global or SP500 strategy that is 60% Stocks / 40% Bonds and utilizes Monte Carlo simulation to adjust spending.\n\n"
-        "We run the results against historical returns for both Global and SP500 portfolios (60/40 allocation). To determine the annual spending, we use the Median average annual spending result to get the spending percentage of a portfolio by multiplying that withdrawal percentage by the Median Ending Value from the investment account where the spending differences are invested.\n\n"
-        "For example, if the Median Global ending value is $100,000 and the retirement period is 30 years, the withdrawal rate that represents the median average (real) annual spending withdrawal is 8.6%. Therefore, historically speaking, the median average annual spending in a global portfolio of 60% stocks and 40% bonds would have been $8,600 per year, or $258,000 in lifetime (real) spending.\n\n"
-        "To learn more about the Monte Carlo simulator, see my Monte Carlo simulation app 'Do Monte Carlo guardrails work?' on my website."
-    )
-    _hover_html = _html.escape(_hover_text).replace("\n\n", "<br/><br/>").replace("\n", "<br/>")
-    st.markdown(
-        """
-        <style>
-        .ttx { position: relative; display: inline-block; cursor: help; }
-        .ttx .ttx-box {
-            visibility: hidden; opacity: 0; transition: opacity 0.15s ease-in;
-            position: absolute; z-index: 1000; top: 1.6rem; left: 0;
-            width: min(680px, 90vw); padding: 10px 12px; border-radius: 6px;
-            background: #111; color: #fff; text-align: left; box-shadow: 0 6px 16px rgba(0,0,0,0.35);
-            line-height: 1.45; font-size: 0.9rem;
-        }
-        .ttx:hover .ttx-box { visibility: visible; opacity: 1; }
-        </style>
-        <div style='margin: 0.5rem 0 0.25rem 0;'>
-          <span class='ttx'>ℹ️ <u>How to interpret these values (hover)</u>
-            <div class='ttx-box'>%s</div>
-          </span>
-        </div>
-        """ % _hover_html,
-        unsafe_allow_html=True
-    )
-    st.subheader("Plan Summary (Plain Language)")
-
-    def _fmt(x):
-        try:
-            return f"${float(x):,.0f}"
-        except Exception:
-            return str(x)
-
-    summary_lines = []
-    # Horizon
-    summary_lines.append(f"- **Time Horizon:** {int(years)} years to retirement; {int(retirement_years)} years in retirement.")
-
-    # Lump Sum
-    if has_lump:
-        summary_lines.append(f"- **Lump Sum:** You compared spending {_fmt(thinking_spend)} vs {_fmt(whatif_spend)}; the difference {_fmt(lump_diff)} is invested across all historical windows.")
-
-    # Annual Habits
-    if has_habits:
-        total_habits = sum(float(c) for c in annual_contribs)
-        summary_lines.append(f"- **Annual Habits:** You invest about {_fmt(total_habits)} per year from selected habits.")
-
-    # Auto
-    if has_auto:
-        summary_lines.append(
-            f"- **Auto Strategy:** Frugal car {_fmt(frugal_price)} (replace every {int(frugal_replace)}y)"
-            f" vs non‑frugal {_fmt(non_price)} (replace every {int(non_replace)}y)."
-            f" Loans at {frugal_rate:.2f}%/{int(frugal_term)}y (frugal) and {non_rate:.2f}%/{int(non_term)}y (non‑frugal)."
-            f" Residual values are used as next down payments."
-        )
-
-    # Housing
-    if has_housing:
-        # Determine down payment description (percent vs override)
-        dp_desc_sp = f"{house_down_pct}%" if float(house_spender_down_amt) <= 0 else _fmt(house_spender_down_amt)
-        dp_desc_fr = f"{house_down_pct}%" if float(house_frugal_down_amt)  <= 0 else _fmt(house_frugal_down_amt)
-        summary_lines.append(
-            f"- **Housing Strategy:** Spender home {_fmt(house_spender_price)} (DP {dp_desc_sp})"
-            f" vs frugal {_fmt(house_frugal_price)} (DP {dp_desc_fr}),"
-            f" {house_apr:.2f}% APR, {int(house_term)}‑year mortgage."
-            f" Annual property‑tax difference at {house_tax_rate:.1f}% is added to invested differences."
-        )
-        if dp_diff > 0:
-            summary_lines.append(f"  - **Down Payment Difference:** {_fmt(dp_diff)} invested at the start (beginning‑of‑year).")
-
-    # Grand Total snapshot (if available)
-    try:
-        if 'grand_df' in locals() and isinstance(grand_df, pd.DataFrame) and not grand_df.empty:
-            for _, r in grand_df.iterrows():
-                p = str(r.get("Portfolio","")).strip()
-                yrs_int = int(r.get("Years", retirement_years))
-                # Annual
-                if "Annual Retirement Income — Grand Total" in grand_df.columns:
-                    ann_val = float(r.get("Annual Retirement Income — Grand Total", 0.0) or 0.0)
-                else:
-                    ann_cols = [c for c in grand_df.columns if c.startswith("Annual Retirement Income — ") and c != "Annual Retirement Income — Grand Total"]
-                    ann_val = float(np.nansum([float(r.get(c, 0.0) or 0.0) for c in ann_cols])) if ann_cols else 0.0
-                # Total
-                if "Total — Grand Total" in grand_df.columns:
-                    tot_val = float(r.get("Total — Grand Total", 0.0) or 0.0)
-                else:
-                    tot_cols = [c for c in grand_df.columns if c.startswith("Total — ") and c != "Total — Grand Total"]
-                    if tot_cols:
-                        tot_val = float(np.nansum([float(r.get(c, 0.0) or 0.0) for c in tot_cols]))
-                    else:
-                        tot_val = float(ann_val) * float(yrs_int)
-                p_lower = p.lower()
-                if p_lower == "global":
-                    summary_lines.append(
-                        f"By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                    )
-                elif p_lower in ("spx", "sp500", "s&p 500", "s&p500"):
-                    summary_lines.append(
-                        f"By following a more frugal approach to spending decisions, the invested difference (historically) in an SP500 index fund would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                    )
-                else:
-                    summary_lines.append(
-                        f"For {p}, the invested difference (historically) would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                    )
-    except Exception:
-        pass
-
-    # Render as plain text to avoid markdown/HTML wrapping issues
-    import re as _re
-    summary_plain = "\n".join([_re.sub(r"\*", "", line) for line in summary_lines])
-    st.text(summary_plain)
-
-    # Small footnote on assumptions
-    st.caption("Assumptions: annual contributions invested at end-of-year; down-payment differences at beginning-of-year; results shown for Global (20 bps) and S&P 500 (5 bps) portfolios using historical windows.")
 except Exception:
     pass
