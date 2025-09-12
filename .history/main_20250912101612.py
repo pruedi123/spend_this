@@ -161,7 +161,6 @@ def build_payment_vector(price: float, initial_down: float, apr_pct: float, year
 # ---------------------------
 
 st.title("Spend This — Opportunity Cost Calculator")
-top_box = st.container()
 
 with st.sidebar:
     st.header("Inputs")
@@ -1005,238 +1004,248 @@ except Exception:
 # Plan Summary (Plain Language)
 # ---------------------------
 try:
-    with top_box:
-        # Hover note explaining how summary values are derived (CSS tooltip for reliable hover)
-        import html as _html
-        _hover_text = (
-            "The values outputted below assume you invest the difference in spending amounts in either the Global Strategy or SP500 Index Strategy that represented the highest ending value at the beginning of retirement.\n\n"
-            "At retirement, we assume a Global or SP500 strategy that is 60% Stocks / 40% Bonds and utilizes Monte Carlo simulation to adjust spending.\n\n"
-            "We run the results against historical returns for both Global and SP500 portfolios (60/40 allocation). To determine the annual spending, we use the Median average annual spending result to get the spending percentage of a portfolio by multiplying that withdrawal percentage by the Median Ending Value from the investment account where the spending differences are invested.\n\n"
-            "For example, if the Median Global ending value is $100,000 and the retirement period is 30 years, the withdrawal rate that represents the median average (real) annual spending withdrawal is 8.6%. Therefore, historically speaking, the median average annual spending in a global portfolio of 60% stocks and 40% bonds would have been $8,600 per year, or $258,000 in lifetime (real) spending.\n\n"
-            "To learn more about the Monte Carlo simulator, see my Monte Carlo simulation app 'Do Monte Carlo guardrails work?' on my website."
-        )
-        _hover_html = _html.escape(_hover_text).replace("\n\n", "<br/><br/>").replace("\n", "<br/>")
+    # Hover note explaining how summary values are derived (CSS tooltip for reliable hover)
+    import html as _html
+    _hover_text = (
+        "The values outputted below assume you invest the difference in spending amounts in either the Global Strategy or SP500 Index Strategy that represented the highest ending value at the beginning of retirement.\n\n"
+        "At retirement, we assume a Global or SP500 strategy that is 60% Stocks / 40% Bonds and utilizes Monte Carlo simulation to adjust spending.\n\n"
+        "We run the results against historical returns for both Global and SP500 portfolios (60/40 allocation). To determine the annual spending, we use the Median average annual spending result to get the spending percentage of a portfolio by multiplying that withdrawal percentage by the Median Ending Value from the investment account where the spending differences are invested.\n\n"
+        "For example, if the Median Global ending value is $100,000 and the retirement period is 30 years, the withdrawal rate that represents the median average (real) annual spending withdrawal is 8.6%. Therefore, historically speaking, the median average annual spending in a global portfolio of 60% stocks and 40% bonds would have been $8,600 per year, or $258,000 in lifetime (real) spending.\n\n"
+        "To learn more about the Monte Carlo simulator, see my Monte Carlo simulation app 'Do Monte Carlo guardrails work?' on my website."
+    )
+    _hover_html = _html.escape(_hover_text).replace("\n\n", "<br/><br/>").replace("\n", "<br/>")
+    st.markdown(
+        """
+        <style>
+        .ttx { position: relative; display: inline-block; cursor: help; }
+        .ttx .ttx-box {
+            visibility: hidden; opacity: 0; transition: opacity 0.15s ease-in;
+            position: absolute; z-index: 1000; top: 1.6rem; left: 0;
+            width: min(680px, 90vw); padding: 10px 12px; border-radius: 6px;
+            background: #111; color: #fff; text-align: left; box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+            line-height: 1.45; font-size: 0.9rem;
+        }
+        .ttx:hover .ttx-box { visibility: visible; opacity: 1; }
+        </style>
+        <div style='margin: 0.5rem 0 0.25rem 0;'>
+          <span class='ttx'>ℹ️ <u>How to interpret these values (hover)</u>
+            <div class='ttx-box'>%s</div>
+          </span>
+        </div>
+        """ % _hover_html,
+        unsafe_allow_html=True
+    )
+    st.subheader("Plan Summary (Plain Language)")
 
-        def _fmt(x):
-            try:
-                return f"${float(x):,.0f}"
-            except Exception:
-                return str(x)
-
-        summary_lines = []
-        # Horizon
-        summary_lines.append(f"- **Time Horizon:** {int(years)} years to retirement; {int(retirement_years)} years in retirement.")
-
-        # Lump Sum
-        if has_lump:
-            summary_lines.append(f"- **Lump Sum:** You compared spending {_fmt(thinking_spend)} vs {_fmt(whatif_spend)}; the difference {_fmt(lump_diff)} is invested across all historical windows.")
-
-        # Annual Habits
-        if has_habits:
-            total_habits = sum(float(c) for c in annual_contribs)
-            summary_lines.append(f"- **Annual Habits:** You invest about {_fmt(total_habits)} per year from selected habits.")
-
-        # Auto
-        if has_auto:
-            summary_lines.append(
-                f"- **Auto Strategy:** Frugal car {_fmt(frugal_price)} (replace every {int(frugal_replace)}y)"
-                f" vs non‑frugal {_fmt(non_price)} (replace every {int(non_replace)}y)."
-                f" Loans at {frugal_rate:.2f}%/{int(frugal_term)}y (frugal) and {non_rate:.2f}%/{int(non_term)}y (non‑frugal)."
-                f" Residual values are used as next down payments."
-            )
-
-        # Housing
-        if has_housing:
-            # Determine down payment description (percent vs override)
-            dp_desc_sp = f"{house_down_pct}%" if float(house_spender_down_amt) <= 0 else _fmt(house_spender_down_amt)
-            dp_desc_fr = f"{house_down_pct}%" if float(house_frugal_down_amt)  <= 0 else _fmt(house_frugal_down_amt)
-            summary_lines.append(
-                f"- **Housing Strategy:** Spender home {_fmt(house_spender_price)} (DP {dp_desc_sp})"
-                f" vs frugal {_fmt(house_frugal_price)} (DP {dp_desc_fr}),"
-                f" {house_apr:.2f}% APR, {int(house_term)}‑year mortgage."
-                f" Annual property‑tax difference at {house_tax_rate:.1f}% is added to invested differences."
-            )
-            if dp_diff > 0:
-                summary_lines.append(f"  - **Down Payment Difference:** {_fmt(dp_diff)} invested at the start (beginning‑of‑year).")
-
-        # Grand Total snapshot (if available)
+    def _fmt(x):
         try:
-            if 'grand_df' in locals() and isinstance(grand_df, pd.DataFrame) and not grand_df.empty:
-                for _, r in grand_df.iterrows():
-                    p = str(r.get("Portfolio","")).strip()
-                    yrs_int = int(r.get("Years", retirement_years))
-                    # Annual
-                    if "Annual Retirement Income — Grand Total" in grand_df.columns:
-                        ann_val = float(r.get("Annual Retirement Income — Grand Total", 0.0) or 0.0)
+            return f"${float(x):,.0f}"
+        except Exception:
+            return str(x)
+
+    summary_lines = []
+    # Horizon
+    summary_lines.append(f"- **Time Horizon:** {int(years)} years to retirement; {int(retirement_years)} years in retirement.")
+
+    # Lump Sum
+    if has_lump:
+        summary_lines.append(f"- **Lump Sum:** You compared spending {_fmt(thinking_spend)} vs {_fmt(whatif_spend)}; the difference {_fmt(lump_diff)} is invested across all historical windows.")
+
+    # Annual Habits
+    if has_habits:
+        total_habits = sum(float(c) for c in annual_contribs)
+        summary_lines.append(f"- **Annual Habits:** You invest about {_fmt(total_habits)} per year from selected habits.")
+
+    # Auto
+    if has_auto:
+        summary_lines.append(
+            f"- **Auto Strategy:** Frugal car {_fmt(frugal_price)} (replace every {int(frugal_replace)}y)"
+            f" vs non‑frugal {_fmt(non_price)} (replace every {int(non_replace)}y)."
+            f" Loans at {frugal_rate:.2f}%/{int(frugal_term)}y (frugal) and {non_rate:.2f}%/{int(non_term)}y (non‑frugal)."
+            f" Residual values are used as next down payments."
+        )
+
+    # Housing
+    if has_housing:
+        # Determine down payment description (percent vs override)
+        dp_desc_sp = f"{house_down_pct}%" if float(house_spender_down_amt) <= 0 else _fmt(house_spender_down_amt)
+        dp_desc_fr = f"{house_down_pct}%" if float(house_frugal_down_amt)  <= 0 else _fmt(house_frugal_down_amt)
+        summary_lines.append(
+            f"- **Housing Strategy:** Spender home {_fmt(house_spender_price)} (DP {dp_desc_sp})"
+            f" vs frugal {_fmt(house_frugal_price)} (DP {dp_desc_fr}),"
+            f" {house_apr:.2f}% APR, {int(house_term)}‑year mortgage."
+            f" Annual property‑tax difference at {house_tax_rate:.1f}% is added to invested differences."
+        )
+        if dp_diff > 0:
+            summary_lines.append(f"  - **Down Payment Difference:** {_fmt(dp_diff)} invested at the start (beginning‑of‑year).")
+
+    # Grand Total snapshot (if available)
+    try:
+        if 'grand_df' in locals() and isinstance(grand_df, pd.DataFrame) and not grand_df.empty:
+            for _, r in grand_df.iterrows():
+                p = str(r.get("Portfolio","")).strip()
+                yrs_int = int(r.get("Years", retirement_years))
+                # Annual
+                if "Annual Retirement Income — Grand Total" in grand_df.columns:
+                    ann_val = float(r.get("Annual Retirement Income — Grand Total", 0.0) or 0.0)
+                else:
+                    ann_cols = [c for c in grand_df.columns if c.startswith("Annual Retirement Income — ") and c != "Annual Retirement Income — Grand Total"]
+                    ann_val = float(np.nansum([float(r.get(c, 0.0) or 0.0) for c in ann_cols])) if ann_cols else 0.0
+                # Total
+                if "Total — Grand Total" in grand_df.columns:
+                    tot_val = float(r.get("Total — Grand Total", 0.0) or 0.0)
+                else:
+                    tot_cols = [c for c in grand_df.columns if c.startswith("Total — ") and c != "Total — Grand Total"]
+                    if tot_cols:
+                        tot_val = float(np.nansum([float(r.get(c, 0.0) or 0.0) for c in tot_cols]))
                     else:
-                        ann_cols = [c for c in grand_df.columns if c.startswith("Annual Retirement Income — ") and c != "Annual Retirement Income — Grand Total"]
-                        ann_val = float(np.nansum([float(r.get(c, 0.0) or 0.0) for c in ann_cols])) if ann_cols else 0.0
-                    # Total
-                    if "Total — Grand Total" in grand_df.columns:
-                        tot_val = float(r.get("Total — Grand Total", 0.0) or 0.0)
-                    else:
-                        tot_cols = [c for c in grand_df.columns if c.startswith("Total — ") and c != "Total — Grand Total"]
-                        if tot_cols:
-                            tot_val = float(np.nansum([float(r.get(c, 0.0) or 0.0) for c in tot_cols]))
-                        else:
-                            tot_val = float(ann_val) * float(yrs_int)
-                    p_lower = p.lower()
-                    if p_lower == "global":
-                        summary_lines.append(
-                            f"By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                        )
-                    elif p_lower in ("spx", "sp500", "s&p 500", "s&p500"):
-                        summary_lines.append(
-                            f"By following a more frugal approach to spending decisions, the invested difference (historically) in an SP500 index fund would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                        )
-                    else:
-                        summary_lines.append(
-                            f"For {p}, the invested difference (historically) would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                        )
+                        tot_val = float(ann_val) * float(yrs_int)
+                p_lower = p.lower()
+                if p_lower == "global":
+                    summary_lines.append(
+                        f"By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
+                    )
+                elif p_lower in ("spx", "sp500", "s&p 500", "s&p500"):
+                    summary_lines.append(
+                        f"By following a more frugal approach to spending decisions, the invested difference (historically) in an SP500 index fund would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
+                    )
+                else:
+                    summary_lines.append(
+                        f"For {p}, the invested difference (historically) would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
+                    )
+    except Exception:
+        pass
+
+    # Render as plain text to avoid markdown/HTML wrapping issues
+    import re as _re
+    summary_plain = "\n".join([_re.sub(r"\*", "", line) for line in summary_lines])
+    # Insert an extra blank line between lines starting with "By following a more frugal approach"
+    summary_plain = summary_plain.replace(
+        "By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio",
+        "By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio\n"
+    )
+    st.text(summary_plain)
+
+    # ===== Four summary containers =====
+    def _safe_total_from_grand(_df, port_name: str, yrs_default: int) -> float | None:
+        try:
+            if isinstance(_df, pd.DataFrame) and not _df.empty:
+                sel = _df.loc[_df["Portfolio"].astype(str).str.lower() == port_name.lower()]
+                if sel.empty:
+                    return None
+                if "Total — Grand Total" in _df.columns:
+                    v = float(sel["Total — Grand Total"].iloc[0])
+                    return v
+                # Fallback: sum any available "Total — *" columns; else Ann * Years
+                tot_cols = [c for c in _df.columns if c.startswith("Total — ")]
+                if tot_cols:
+                    return float(sel[tot_cols].fillna(0).astype(float).sum(axis=1).iloc[0])
+                ann_col = "Annual Retirement Income — Grand Total"
+                if ann_col in _df.columns:
+                    ann_v = float(sel[ann_col].iloc[0])
+                    yrs_v = float(sel.get("Years", pd.Series([yrs_default])).iloc[0])
+                    return ann_v * yrs_v
+        except Exception:
+            return None
+        return None
+
+    # Prefer grand totals if present; otherwise fall back to lump-sum medians
+    total_global = _safe_total_from_grand(locals().get("grand_df"), "Global", int(retirement_years))
+    total_spx    = _safe_total_from_grand(locals().get("grand_df"), "SPX", int(retirement_years))
+
+    if (total_global is None or not np.isfinite(total_global)) and "lump_df" in locals() and isinstance(lump_df, pd.DataFrame) and not lump_df.empty:
+        try:
+            _g_row = lump_df.loc[lump_df["Portfolio"].astype(str).str.lower() == "global"]
+            if not _g_row.empty:
+                total_global = float(_g_row["Total Median Retirement Income"].iloc[0])
+        except Exception:
+            pass
+        try:
+            _s_row = lump_df.loc[lump_df["Portfolio"].astype(str).str.lower().isin(["spx","sp500","s&p 500","s&p500"]) ]
+            if not _s_row.empty:
+                total_spx = float(_s_row["Total Median Retirement Income"].iloc[0])
         except Exception:
             pass
 
-        # Render as plain text to avoid markdown/HTML wrapping issues
-        import re as _re
-        summary_plain = "\n".join([_re.sub(r"\*", "", line) for line in summary_lines])
-        # Insert an extra blank line between lines starting with "By following a more frugal approach"
-        summary_plain = summary_plain.replace(
-            "By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio",
-            "By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio\n"
-        )
 
-        # ===== Four summary containers =====
-        def _safe_total_from_grand(_df, port_name: str, yrs_default: int) -> float | None:
-            try:
-                if isinstance(_df, pd.DataFrame) and not _df.empty:
-                    sel = _df.loc[_df["Portfolio"].astype(str).str.lower() == port_name.lower()]
-                    if sel.empty:
-                        return None
-                    if "Total — Grand Total" in _df.columns:
-                        v = float(sel["Total — Grand Total"].iloc[0])
-                        return v
-                    # Fallback: sum any available "Total — *" columns; else Ann * Years
-                    tot_cols = [c for c in _df.columns if c.startswith("Total — ")]
-                    if tot_cols:
-                        return float(sel[tot_cols].fillna(0).astype(float).sum(axis=1).iloc[0])
-                    ann_col = "Annual Retirement Income — Grand Total"
-                    if ann_col in _df.columns:
-                        ann_v = float(sel[ann_col].iloc[0])
-                        yrs_v = float(sel.get("Years", pd.Series([yrs_default])).iloc[0])
-                        return ann_v * yrs_v
-            except Exception:
-                return None
-            return None
+    spend_this_val = whatif_spend  # frugal value
+    not_this_val   = thinking_spend # non-frugal value
 
-        # Prefer grand totals if present; otherwise fall back to lump-sum medians
-        total_global = _safe_total_from_grand(locals().get("grand_df"), "Global", int(retirement_years))
-        total_spx    = _safe_total_from_grand(locals().get("grand_df"), "SPX", int(retirement_years))
+    # --- Card styles for summary boxes ---
+    st.markdown(
+        """
+        <style>
+          .info-card { 
+            background: #0b5ed7; /* bootstrap primary-ish */
+            color: #ffffff;
+            border: 1px solid #084298; 
+            border-radius: 8px; 
+            padding: 12px 14px; 
+          }
+          .info-card h4 { 
+            margin: 0 0 6px 0; 
+            font-weight: 700; 
+          }
+          .info-card .value { 
+            font-size: 1.25rem; 
+            font-weight: 700; 
+            margin-top: 2px; 
+          }
+          .info-card .sub { 
+            opacity: 0.95; 
+            font-size: 0.9rem; 
+            margin-top: 6px; 
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        if (total_global is None or not np.isfinite(total_global)) and "lump_df" in locals() and isinstance(lump_df, pd.DataFrame) and not lump_df.empty:
-            try:
-                _g_row = lump_df.loc[lump_df["Portfolio"].astype(str).str.lower() == "global"]
-                if not _g_row.empty:
-                    total_global = float(_g_row["Total Median Retirement Income"].iloc[0])
-            except Exception:
-                pass
-            try:
-                _s_row = lump_df.loc[lump_df["Portfolio"].astype(str).str.lower().isin(["spx","sp500","s&p 500","s&p500"]) ]
-                if not _s_row.empty:
-                    total_spx = float(_s_row["Total Median Retirement Income"].iloc[0])
-            except Exception:
-                pass
-
-
-        spend_this_val = whatif_spend  # frugal value
-        not_this_val   = thinking_spend # non-frugal value
-
-        # --- Card styles for summary boxes ---
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
         st.markdown(
-            """
-            <style>
-              .info-card { 
-                background: #0b5ed7; /* bootstrap primary-ish */
-                color: #ffffff;
-                border: 1px solid #084298; 
-                border-radius: 8px; 
-                padding: 12px 14px; 
-                text-align: center; /* center all text */
-              }
-              .info-card h4 { 
-                margin: 0 0 6px 0; 
-                font-weight: 700; 
-              }
-              .info-card .value { 
-                font-size: 1.25rem; 
-                font-weight: 700; 
-                margin-top: 2px; 
-              }
-              .info-card .sub { 
-                opacity: 0.95; 
-                font-size: 0.9rem; 
-                margin-top: 6px; 
-              }
-            </style>
+            f"""
+            <div class='info-card'>
+              <h4>Spend This</h4>
+              <div class='value'>{_fmt(spend_this_val)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            f"""
+            <div class='info-card'>
+              <h4>Not This</h4>
+              <div class='value'>{_fmt(not_this_val)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            f"""
+            <div class='info-card'>
+              <h4>Lifetime Retirement Income</h4>
+              <div class='value'>{_fmt(total_global if (total_global is not None and np.isfinite(total_global)) else 0)}</div>
+              <div class='sub'>Global Strategy</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c4:
+        st.markdown(
+            f"""
+            <div class='info-card'>
+              <h4>Lifetime Retirement Income</h4>
+              <div class='value'>{_fmt(total_spx if (total_spx is not None and np.isfinite(total_spx)) else 0)}</div>
+              <div class='sub'>SP500 Strategy</div>
+            </div>
             """,
             unsafe_allow_html=True,
         )
 
-        # --- Summary cards: Lifetime Retirement Income only (Global/SP500) ---
-        r2c1, r2c2, r2c3 = st.columns(3)
-        with r2c1:
-            st.markdown(
-                f"""
-                <div class='info-card'>
-                  <h4>Lifetime Retirement Income</h4>
-                  <div class='value'>{_fmt(total_global if (total_global is not None and np.isfinite(total_global)) else 0)}</div>
-                  <div class='sub'>Global Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r2c2:
-            st.markdown(
-                f"""
-                <div class='info-card'>
-                  <h4>Lifetime Retirement Income</h4>
-                  <div class='value'>{_fmt(total_spx if (total_spx is not None and np.isfinite(total_spx)) else 0)}</div>
-                  <div class='sub'>SP500 Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r2c3:
-            st.write("")
-
-        # ---------------------- HOVER, HEADER, SUMMARY, CAPTION MOVED HERE ----------------------
-        # Hover just above Plan Summary
-        st.markdown(
-            """
-            <style>
-            .ttx { position: relative; display: inline-block; cursor: help; }
-            .ttx .ttx-box {
-                visibility: hidden; opacity: 0; transition: opacity 0.15s ease-in;
-                position: absolute; z-index: 1000; top: 1.6rem; left: 0;
-                width: min(680px, 90vw); padding: 10px 12px; border-radius: 6px;
-                background: #111; color: #fff; text-align: left; box-shadow: 0 6px 16px rgba(0,0,0,0.35);
-                line-height: 1.45; font-size: 0.9rem;
-            }
-            .ttx:hover .ttx-box { visibility: visible; opacity: 1; }
-            </style>
-            <div style='margin: 0.5rem 0 0.25rem 0;'>
-              <span class='ttx'>ℹ️ <u>How to interpret these values (hover)</u>
-                <div class='ttx-box'>%s</div>
-              </span>
-            </div>
-            """ % _hover_html,
-            unsafe_allow_html=True
-        )
-
-        # Plan Summary header and text (now below hover)
-        st.subheader("Plan Summary (Plain Language)")
-        st.text(summary_plain)
-
-        # Small footnote on assumptions (now below Plan Summary)
-        st.caption("Assumptions: annual contributions invested at end-of-year; down-payment differences at beginning-of-year; results shown for Global (20 bps) and S&P 500 (5 bps) portfolios using historical windows.")
+    # Small footnote on assumptions
+    st.caption("Assumptions: annual contributions invested at end-of-year; down-payment differences at beginning-of-year; results shown for Global (20 bps) and S&P 500 (5 bps) portfolios using historical windows.")
 except Exception:
     pass
