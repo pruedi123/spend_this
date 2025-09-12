@@ -163,6 +163,18 @@ def build_payment_vector(price: float, initial_down: float, apr_pct: float, year
 st.title("Spend This — Opportunity Cost Calculator")
 top_box = st.container()
 
+# --- View mode state & immediate CSS application ---
+# Default to Summary only until the user switches the radio (defined later under the summary)
+if "view_mode" not in st.session_state:
+    st.session_state["view_mode"] = "Summary only"
+_SHOW_DETAILS = (st.session_state.get("view_mode", "Summary only") == "Show full details")
+
+# Apply CSS at the top so details hide/show correctly even before the radio renders
+st.markdown(
+    "<style>.details-block{display:%s}</style>" % ("block" if _SHOW_DETAILS else "none"),
+    unsafe_allow_html=True,
+)
+
 with st.sidebar:
     st.header("Inputs")
     current_age = st.number_input("Current Age", min_value=0, max_value=120, value=30)
@@ -379,6 +391,10 @@ non_age_at_ret = 0 if last_non_start is None else int(years) - int(last_non_star
 frugal_residual = residual_value(frugal_price, frugal_age_at_ret, dep_y1, dep_y2_5, dep_y6_10, dep_y11p)
 non_residual = residual_value(non_price, non_age_at_ret, dep_y1, dep_y2_5, dep_y6_10, dep_y11p)
 
+# ---------------------------
+# Opportunity Cost — Lump Sum (Min & Median by Allocation)
+# ---------------------------
+st.markdown("<div class='details-block'>", unsafe_allow_html=True)
 # ---------------------------
 # Opportunity Cost — Lump Sum (Min & Median by Allocation)
 # ---------------------------
@@ -1119,6 +1135,7 @@ try:
 except Exception:
     pass
 
+st.markdown("</div>", unsafe_allow_html=True)
 # ---------------------------
 # Plan Summary (Plain Language)
 # ---------------------------
@@ -1400,5 +1417,19 @@ try:
 
         # Small footnote on assumptions (now below Plan Summary)
         st.caption("Assumptions: annual contributions invested at end-of-year; down-payment differences at beginning-of-year; results shown for Global (20 bps) and S&P 500 (5 bps) portfolios using historical windows.")
+
+        # --- Detail toggle just beneath the summary ---
+        _view_choice = st.radio(
+            "View mode",
+            ["Summary only", "Show full details"],
+            index=0,
+            horizontal=True,
+            key="view_mode",
+        )
+        # Hide or show everything wrapped in .details-block below
+        if st.session_state.get("view_mode", "Summary only") == "Summary only":
+            st.markdown("<style>.details-block{display:none}</style>", unsafe_allow_html=True)
+        else:
+            st.markdown("<style>.details-block{display:block}</style>", unsafe_allow_html=True)
 except Exception:
     pass

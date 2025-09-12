@@ -1299,50 +1299,6 @@ try:
             unsafe_allow_html=True,
         )
 
-        # --- Summary cards (TOP ROW): Median Ending Value Totals (Global/SP500) ---
-        # Pull from grand_ending_df if available
-        def _pull_med_total(df_: pd.DataFrame | None, port: str) -> float | None:
-            try:
-                if isinstance(df_, pd.DataFrame) and not df_.empty:
-                    row = df_.loc[df_["Portfolio"].astype(str).str.lower() == port.lower()]
-                    if not row.empty:
-                        return float(row["Grand Total — Median Ending Value"].iloc[0])
-            except Exception:
-                return None
-            return None
-
-        med_total_global = _pull_med_total(locals().get("grand_ending_df"), "Global")
-        med_total_spx    = _pull_med_total(locals().get("grand_ending_df"), "SPX")
-
-        r1c1, r1c2, r1c3 = st.columns(3)
-        with r1c1:
-            st.markdown(
-                f"""
-                <div class='info-card'>
-                  <h4>Median Ending Value Total</h4>
-                  <div class='value'>{_fmt(med_total_global if (med_total_global is not None and np.isfinite(med_total_global)) else 0)}</div>
-                  <div class='sub'>Global Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r1c2:
-            st.markdown(
-                f"""
-                <div class='info-card'>
-                  <h4>Median Ending Value Total</h4>
-                  <div class='value'>{_fmt(med_total_spx if (med_total_spx is not None and np.isfinite(med_total_spx)) else 0)}</div>
-                  <div class='sub'>SP500 Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r1c3:
-            st.write("")
-
-        # small spacer between the two card rows
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-
         # --- Summary cards: Lifetime Retirement Income only (Global/SP500) ---
         r2c1, r2c2, r2c3 = st.columns(3)
         with r2c1:

@@ -1340,9 +1340,6 @@ try:
         with r1c3:
             st.write("")
 
-        # small spacer between the two card rows
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-
         # --- Summary cards: Lifetime Retirement Income only (Global/SP500) ---
         r2c1, r2c2, r2c3 = st.columns(3)
         with r2c1:

@@ -382,6 +382,10 @@ non_residual = residual_value(non_price, non_age_at_ret, dep_y1, dep_y2_5, dep_y
 # ---------------------------
 # Opportunity Cost — Lump Sum (Min & Median by Allocation)
 # ---------------------------
+st.markdown("<div class='details-block'>", unsafe_allow_html=True)
+# ---------------------------
+# Opportunity Cost — Lump Sum (Min & Median by Allocation)
+# ---------------------------
 if has_lump:
     rows = []
     for alloc in common_allocs:
@@ -1119,6 +1123,7 @@ try:
 except Exception:
     pass
 
+st.markdown("</div>", unsafe_allow_html=True)
 # ---------------------------
 # Plan Summary (Plain Language)
 # ---------------------------
@@ -1400,5 +1405,19 @@ try:
 
         # Small footnote on assumptions (now below Plan Summary)
         st.caption("Assumptions: annual contributions invested at end-of-year; down-payment differences at beginning-of-year; results shown for Global (20 bps) and S&P 500 (5 bps) portfolios using historical windows.")
+
+        # --- Detail toggle just beneath the summary ---
+        _view_choice = st.radio(
+            "View mode",
+            ["Summary only", "Show full details"],
+            index=0,
+            horizontal=True,
+            key="view_mode",
+        )
+        # Hide or show everything wrapped in .details-block below
+        if st.session_state.get("view_mode", "Summary only") == "Summary only":
+            st.markdown("<style>.details-block{display:none}</style>", unsafe_allow_html=True)
+        else:
+            st.markdown("<style>.details-block{display:block}</style>", unsafe_allow_html=True)
 except Exception:
     pass
