@@ -179,75 +179,74 @@ def build_payment_vector(price: float, initial_down: float, apr_pct: float, year
 # Reset helper
 # ---------------------------
 def _reset_all_inputs():
-    # Defer resets to pre-widget phase to avoid post-instantiation conflicts
-    st.session_state["__do_reset__"] = True
+    # Broad reset by clearing known widget keys and section toggles, then rerun
+    # 1) Explicit list of widget keys used in the app
+    keys = [
+        # Master view
+        "master_view",
+
+        # Ages & horizon
+        "Current Age",
+        "Retirement Age",
+        "Number of Years in Retirement",
+
+        # Lump Sum
+        "Thinking of Spending ($)",
+        "What if I Spend This Instead ($)",
+
+        # Annual Habits controller and per-habit fields (up to 5)
+        "Number of habits",
+        *[f"daily_spend_{i}" for i in range(1, 6)],
+        *[f"frugal_daily_{i}" for i in range(1, 6)],
+        *[f"days_per_week_{i}" for i in range(1, 6)],
+        *[f"weeks_per_year_{i}" for i in range(1, 6)],
+
+        # Auto section
+        "Frugal car price ($)",
+        "Frugal replacement frequency (years)",
+        "Frugal down payment ($)",
+        "Frugal finance rate (APR %)",
+        "Frugal finance term (years)",
+        "Use residual value as next down payment",
+        "Non-frugal car price ($)",
+        "Non-frugal down payment ($)",
+        "Finance rate (APR %)",
+        "Finance term (years)",
+        "Non-frugal replacement frequency (years)",
+        # Depreciation sliders
+        "Year 1",
+        "Years 2–5",
+        "Years 6–10",
+        "Years 11+",
+
+        # Housing section
+        "Spender home price ($)",
+        "Frugal home price ($)",
+        "Down payment % (applies if overrides are 0)",
+        "Spender down payment override ($)",
+        "Frugal down payment override ($)",
+        "Mortgage APR (%)",
+        "Mortgage term (years)",
+        "Property tax rate (%)",
+    ]
+
+    # 2) Clear the explicit keys if present
+    for k in keys:
+        if k in st.session_state:
+            st.session_state.pop(k, None)
+
+    # 3) Clear all section toggle radios created by section_toggle()
+    # They use keys like "toggle_..." derived from labels
+    for k in list(st.session_state.keys()):
+        if isinstance(k, str) and k.startswith("toggle_"):
+            st.session_state.pop(k, None)
+
+    # 4) Rerun to rebuild UI using widget defaults
     st.rerun()
 
 # ---------------------------
 # UI
 # ---------------------------
-
-# ---------------------------
-# Apply pending reset BEFORE any widgets are instantiated
-# ---------------------------
-if st.session_state.get("__do_reset__", False):
-    # Master view default
-    st.session_state["master_view"] = "Show Summary Data Only"
-
-    # Ages & horizon (leave reasonable defaults)
-    st.session_state["Current Age"] = 30
-    st.session_state["Retirement Age"] = 65
-    st.session_state["Number of Years in Retirement"] = 30
-
-    # Lump Sum
-    st.session_state["Thinking of Spending ($)"] = 0
-    st.session_state["What if I Spend This Instead ($)"] = 0
-
-    # Annual Habits controller and per-habit fields (up to 5)
-    st.session_state["Number of habits"] = 0
-    for i in range(1, 6):
-        st.session_state[f"daily_spend_{i}"] = 0.0
-        st.session_state[f"frugal_daily_{i}"] = 0.0
-        st.session_state[f"days_per_week_{i}"] = 1
-        st.session_state[f"weeks_per_year_{i}"] = 1
-
-    # Auto section
-    st.session_state["Frugal car price ($)"] = 0
-    st.session_state["Frugal replacement frequency (years)"] = 10
-    st.session_state["Frugal down payment ($)"] = 0
-    st.session_state["Frugal finance rate (APR %)"] = 0.0
-    st.session_state["Frugal finance term (years)"] = 5
-    st.session_state["Use residual value as next down payment"] = True
-
-    st.session_state["Non-frugal car price ($)"] = 0
-    st.session_state["Non-frugal down payment ($)"] = 0
-    st.session_state["Finance rate (APR %)"] = 5.0
-    st.session_state["Finance term (years)"] = 5
-    st.session_state["Non-frugal replacement frequency (years)"] = 5
-
-    # Depreciation sliders
-    st.session_state["Year 1"] = 0
-    st.session_state["Years 2–5"] = 0
-    st.session_state["Years 6–10"] = 0
-    st.session_state["Years 11+"] = 0
-
-    # Housing section
-    st.session_state["Spender home price ($)"] = 0
-    st.session_state["Frugal home price ($)"] = 0
-    st.session_state["Down payment % (applies if overrides are 0)"] = 0
-    st.session_state["Spender down payment override ($)"] = 0
-    st.session_state["Frugal down payment override ($)"] = 0
-    st.session_state["Mortgage APR (%)"] = 0.0
-    st.session_state["Mortgage term (years)"] = 30
-    st.session_state["Property tax rate (%)"] = 0.0
-
-    # Clear any section toggle radios
-    for k in list(st.session_state.keys()):
-        if isinstance(k, str) and k.startswith("toggle_"):
-            st.session_state.pop(k, None)
-
-    # Clear the flag so we don't loop
-    st.session_state["__do_reset__"] = False
 
 st.title("Spend This — Opportunity Cost Calculator")
 # Master view: default to Hide all details
@@ -266,13 +265,13 @@ with st.sidebar:
         _reset_all_inputs()
     st.markdown("---")
     st.header("Inputs")
-    current_age = st.number_input("Current Age", min_value=0, max_value=120, value=30, key="Current Age")
-    retirement_age = st.number_input("Retirement Age", min_value=0, max_value=120, value=65, key="Retirement Age")
-    retirement_years = st.slider("Number of Years in Retirement", 20, 35, 30, 1, key="Number of Years in Retirement")
+    current_age = st.number_input("Current Age", min_value=0, max_value=120, value=30)
+    retirement_age = st.number_input("Retirement Age", min_value=0, max_value=120, value=65)
+    retirement_years = st.slider("Number of Years in Retirement", 20, 35, 30, 1)
 
     with st.expander("Lump Sum", expanded=False):
-        thinking_spend = st.number_input("Thinking of Spending ($)", min_value=0, value=15000, step=500, key="Thinking of Spending ($)")
-        whatif_spend = st.number_input("What if I Spend This Instead ($)", min_value=0, value=5000, step=500, key="What if I Spend This Instead ($)")
+        thinking_spend = st.number_input("Thinking of Spending ($)", min_value=0, value=15000, step=500)
+        whatif_spend = st.number_input("What if I Spend This Instead ($)", min_value=0, value=5000, step=500)
         lump_diff = max(0, thinking_spend - whatif_spend)
         st.caption(f"**Lump-sum difference:** ${lump_diff:,.0f}")
 
@@ -294,43 +293,43 @@ with st.sidebar:
 
     st.markdown("---")
     with st.expander("Auto Purchase Strategy", expanded=False):
-        frugal_price = st.number_input("Frugal car price ($)", min_value=0, value=30000, step=1000, key="Frugal car price ($)")
-        frugal_replace = st.slider("Frugal replacement frequency (years)", 3, 15, 10, key="Frugal replacement frequency (years)")
+        frugal_price = st.number_input("Frugal car price ($)", min_value=0, value=30000, step=1000)
+        frugal_replace = st.slider("Frugal replacement frequency (years)", 3, 15, 10)
         # NEW: frugal financing + residual-to-down-payment
-        frugal_down = st.number_input("Frugal down payment ($)", min_value=0, value=30000, step=1000, key="Frugal down payment ($)")
-        frugal_rate = st.number_input("Frugal finance rate (APR %)", min_value=0.0, max_value=25.0, value=5.0, step=0.25, key="Frugal finance rate (APR %)")
-        frugal_term = st.slider("Frugal finance term (years)", 1, 10, 5, key="Frugal finance term (years)")
-        apply_residual_dp = st.checkbox("Use residual value as next down payment", value=True, key="Use residual value as next down payment")
+        frugal_down = st.number_input("Frugal down payment ($)", min_value=0, value=30000, step=1000)
+        frugal_rate = st.number_input("Frugal finance rate (APR %)", min_value=0.0, max_value=25.0, value=5.0, step=0.25)
+        frugal_term = st.slider("Frugal finance term (years)", 1, 10, 5)
+        apply_residual_dp = st.checkbox("Use residual value as next down payment", value=True)
 
-        non_price = st.number_input("Non-frugal car price ($)", min_value=0, value=0, step=1000, key="Non-frugal car price ($)")
-        non_down = st.number_input("Non-frugal down payment ($)", min_value=0, value=0, step=1000, key="Non-frugal down payment ($)")
-        non_rate = st.number_input("Finance rate (APR %)", min_value=0.0, max_value=25.0, value=5.0, step=0.25, key="Finance rate (APR %)")
-        non_term = st.slider("Finance term (years)", 1, 10, 5, key="Finance term (years)")
+        non_price = st.number_input("Non-frugal car price ($)", min_value=0, value=0, step=1000)
+        non_down = st.number_input("Non-frugal down payment ($)", min_value=0, value=0, step=1000)
+        non_rate = st.number_input("Finance rate (APR %)", min_value=0.0, max_value=25.0, value=5.0, step=0.25)
+        non_term = st.slider("Finance term (years)", 1, 10, 5)
         _financed_preview = max(0.0, float(non_price) - float(non_down))
         _monthly_preview = pmt(principal=_financed_preview, apr_pct=float(non_rate), years_term=int(non_term))
         _annual_preview = _monthly_preview * 12.0
         st.markdown(f"**Annual Payment:** ${_annual_preview:,.0f}")
-        non_replace = st.slider("Non-frugal replacement frequency (years)", 2, 15, 5, key="Non-frugal replacement frequency (years)")
+        non_replace = st.slider("Non-frugal replacement frequency (years)", 2, 15, 5)
 
         st.caption("Depreciation model (percent per year)")
-        dep_y1 = st.slider("Year 1", 0, 50, 20, key="Year 1")
-        dep_y2_5 = st.slider("Years 2–5", 0, 40, 15, key="Years 2–5")
-        dep_y6_10 = st.slider("Years 6–10", 0, 30, 10, key="Years 6–10")
-        dep_y11p = st.slider("Years 11+", 0, 25, 7, key="Years 11+")
+        dep_y1 = st.slider("Year 1", 0, 50, 20)
+        dep_y2_5 = st.slider("Years 2–5", 0, 40, 15)
+        dep_y6_10 = st.slider("Years 6–10", 0, 30, 10)
+        dep_y11p = st.slider("Years 11+", 0, 25, 7)
 
     st.markdown("---")
     with st.expander("Housing Strategy", expanded=False):
-        house_spender_price = st.number_input("Spender home price ($)", min_value=0, value=0, step=10000, key="Spender home price ($)")
-        house_frugal_price = st.number_input("Frugal home price ($)", min_value=0, value=0, step=10000, key="Frugal home price ($)")
+        house_spender_price = st.number_input("Spender home price ($)", min_value=0, value=0, step=10000)
+        house_frugal_price = st.number_input("Frugal home price ($)", min_value=0, value=0, step=10000)
 
         # Down payment controls
-        house_down_pct = st.slider("Down payment % (applies if overrides are 0)", 0, 100, 20, key="Down payment % (applies if overrides are 0)")
-        house_spender_down_amt = st.number_input("Spender down payment override ($)", min_value=0, value=0, step=5000, key="Spender down payment override ($)")
-        house_frugal_down_amt = st.number_input("Frugal down payment override ($)", min_value=0, value=0, step=5000, key="Frugal down payment override ($)")
+        house_down_pct = st.slider("Down payment % (applies if overrides are 0)", 0, 100, 20)
+        house_spender_down_amt = st.number_input("Spender down payment override ($)", min_value=0, value=0, step=5000)
+        house_frugal_down_amt = st.number_input("Frugal down payment override ($)", min_value=0, value=0, step=5000)
 
         # Mortgage controls
-        house_apr = st.number_input("Mortgage APR (%)", min_value=0.0, max_value=25.0, value=5.0, step=0.25, key="Mortgage APR (%)")
-        house_term = st.slider("Mortgage term (years)", 5, 40, 30, key="Mortgage term (years)")
+        house_apr = st.number_input("Mortgage APR (%)", min_value=0.0, max_value=25.0, value=5.0, step=0.25)
+        house_term = st.slider("Mortgage term (years)", 5, 40, 30)
 
         # Preview annual payments for both buyers using current settings
         _dp_spender_prev = float(house_spender_down_amt) if float(house_spender_down_amt) > 0 else (house_down_pct / 100.0) * float(house_spender_price)
@@ -346,7 +345,7 @@ with st.sidebar:
         st.caption(f"Spender ${_sp_ann:,.0f}")
         st.caption(f"Frugal ${_fr_ann:,.0f}")
         st.caption(f"Difference ${_diff_ann:,.0f}")
-        house_tax_rate = st.slider("Property tax rate (%)", 0.0, 3.0, 2.5, 0.1, key="Property tax rate (%)")
+        house_tax_rate = st.slider("Property tax rate (%)", 0.0, 3.0, 2.5, 0.1)
 
 # ---------------------------
 # Global constants
