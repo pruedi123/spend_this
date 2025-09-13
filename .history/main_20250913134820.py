@@ -4,15 +4,9 @@ import numpy as np
 import re
 
 # ---- Per-section view toggle ----
-def section_toggle(label: str, default_show: bool = False) -> bool:
-    """Return True if the section should be shown; unique key per label.
-    Honors a master override radio stored in st.session_state['master_view'].
-    """
-    master = st.session_state.get("master_view", "Hide all details")
-    if master in ("Show all details", "Hide all details"):
-        idx = 1 if (master == "Show all details") else 0
-    else:
-        idx = 1 if default_show else 0
+def section_toggle(label: str, default_show: bool = True) -> bool:
+    """Return True if the section should be shown; unique key per label."""
+    idx = 1 if default_show else 0
     choice = st.radio(
         f"View — {label}",
         ["Hide details", "Show details"],
@@ -180,14 +174,6 @@ def build_payment_vector(price: float, initial_down: float, apr_pct: float, year
 # ---------------------------
 
 st.title("Spend This — Opportunity Cost Calculator")
-# Master view: default to Hide all details
-MASTER_CHOICE = st.radio(
-    "Master view",
-    ["Hide all details", "Show all details"],
-    index=0,
-    horizontal=True,
-    key="master_view",
-)
 top_box = st.container()
 
 with st.sidebar:
@@ -460,13 +446,13 @@ if has_lump:
             "SPX Median Ending Value": s_med,
         })
     raw_df = pd.DataFrame(raw_rows)[["Allocation","Global Minimum Ending Value","SPX Mininimum Ending Value","Global Median Ending Value","SPX Median Ending Value"]]
-    # if section_toggle("Lump Sum — Min & Median by Allocation (CSV)"):
-    #     st.download_button(
-    #         "Download table (CSV)",
-    #         data=raw_df.to_csv(index=False).encode("utf-8"),
-    #         file_name=f"spend_this_min_median_{years}y.csv",
-    #         mime="text/csv",
-    #     )
+    if section_toggle("Lump Sum — Min & Median by Allocation (CSV)"):
+        st.download_button(
+            "Download table (CSV)",
+            data=raw_df.to_csv(index=False).encode("utf-8"),
+            file_name=f"spend_this_min_median_{years}y.csv",
+            mime="text/csv",
+        )
 else:
     # Ensure raw_df exists for downstream guards
     raw_df = pd.DataFrame()
@@ -530,12 +516,12 @@ for idx, annual_contrib in enumerate(annual_contribs, start=1):
                     pass
                 return styles
             st.dataframe(result_annual_df.style.apply(_style_max, axis=None), use_container_width=True)
-            # st.download_button(
-            #     f"Download annual habit {idx} table (CSV)",
-            #     data=raw_annual_df.to_csv(index=False).encode("utf-8"),
-            #     file_name=f"spend_this_annual_only_habit{idx}_{years}y.csv",
-            #     mime="text/csv"
-            # )
+            st.download_button(
+                f"Download annual habit {idx} table (CSV)",
+                data=raw_annual_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"spend_this_annual_only_habit{idx}_{years}y.csv",
+                mime="text/csv"
+            )
     else:
         st.info(f"No results to display for the annual habit {idx} section.")
 
@@ -557,10 +543,9 @@ if int(years) > 0:
         auto_sched_disp = auto_sched_df.copy()
         for col in ["Non-frugal Payment ($/yr)", "Frugal Payment ($/yr)", "Invested Difference ($/yr)"]:
             auto_sched_disp[col] = auto_sched_disp[col].map(lambda v: f"${v:,.0f}")
-        if section_toggle("Auto — Year-by-Year Payment Difference"):
-            st.subheader("Frugal Contributions from Payment Difference in Auto Payments (Year by Year)")
-            st.dataframe(auto_sched_disp, use_container_width=True)
-        # st.download_button("Download auto payments schedule (CSV)", data=auto_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_auto_payments_schedule_{_n_years}y.csv", mime="text/csv")
+        st.subheader("Frugal Contributions from Payment Difference in Auto Payments (Year by Year)")
+        st.dataframe(auto_sched_disp, use_container_width=True)
+        st.download_button("Download auto payments schedule (CSV)", data=auto_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_auto_payments_schedule_{_n_years}y.csv", mime="text/csv")
 
     # Housing year-by-year schedule
     if has_housing:
@@ -577,7 +562,7 @@ if int(years) > 0:
             house_sched_disp[col] = house_sched_disp[col].map(lambda v: f"${v:,.0f}")
         st.subheader("Frugal Contributions — Housing (Year by Year)")
         st.dataframe(house_sched_disp, use_container_width=True)
-        # st.download_button("Download housing schedule (CSV)", data=house_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_housing_schedule_{_n_years}y.csv", mime="text/csv")
+        st.download_button("Download housing schedule (CSV)", data=house_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_housing_schedule_{_n_years}y.csv", mime="text/csv")
 
     # Annual habits schedules (one column per habit) + total
     if has_habits:
@@ -593,10 +578,9 @@ if int(years) > 0:
         habits_sched_disp = habits_sched_df.copy()
         for cn in habit_col_names + (["Total Habits ($/yr)"] if habit_col_names else []):
             habits_sched_disp[cn] = habits_sched_disp[cn].map(lambda v: f"${v:,.0f}")
-        if section_toggle("Annual Habits — Year-by-Year Contributions"):
-            st.subheader("Frugal Contributions — Annual Habits (Year by Year)")
-            st.dataframe(habits_sched_disp, use_container_width=True)
-        # st.download_button("Download habits schedule (CSV)", data=habits_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_habits_schedule_{_n_years}y.csv", mime="text/csv")
+        st.subheader("Frugal Contributions — Annual Habits (Year by Year)")
+        st.dataframe(habits_sched_disp, use_container_width=True)
+        st.download_button("Download habits schedule (CSV)", data=habits_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_habits_schedule_{_n_years}y.csv", mime="text/csv")
 
         # Combined only if at least one of auto/habits is present
         total_habits_vec = habits_sched_df["Total Habits ($/yr)"].values if habit_col_names else np.zeros(_n_years, dtype=float)
@@ -610,10 +594,9 @@ if int(years) > 0:
             combined_disp = combined_df.copy()
             for cn in ["Auto Payment Invested ($/yr)", "Total Habits ($/yr)", "Total Frugal Contributions ($/yr)"]:
                 combined_disp[cn] = combined_disp[cn].map(lambda v: f"${v:,.0f}")
-            if section_toggle("Combined — Year-by-Year Contributions"):
-                st.subheader("Frugal Contributions — Combined (Year by Year)")
-                st.dataframe(combined_disp, use_container_width=True)
-            # st.download_button("Download combined frugal contributions (CSV)", data=combined_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_contributions_combined_{_n_years}y.csv", mime="text/csv")
+            st.subheader("Frugal Contributions — Combined (Year by Year)")
+            st.dataframe(combined_disp, use_container_width=True)
+            st.download_button("Download combined frugal contributions (CSV)", data=combined_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_contributions_combined_{_n_years}y.csv", mime="text/csv")
 
  # ==============================================
 # Opportunity Cost — Auto Payments Invested (Min & Median by Allocation)
@@ -655,10 +638,11 @@ if years > 0 and np.any(auto_contribs > 0):
         "Global Median Ending Value",
         "SPX Median Ending Value",
     ]]
-    if section_toggle("Auto Payments Invested — Min & Median by Allocation"):
-        st.subheader("Opportunity Cost — Auto Payments Invested (Min & Median by Allocation)")
-        st.caption("Frugal invests the difference between auto payments (plus any residual-to-down-payment) across all historical windows.")
-        st.dataframe(result_auto_df, use_container_width=True)
+    st.subheader("Opportunity Cost — Auto Payments Invested (Min & Median by Allocation)")
+    st.caption("Frugal invests the difference between auto payments (plus any residual-to-down-payment) across all historical windows."
+
+    )
+    st.dataframe(result_auto_df, use_container_width=True)
 
     raw_auto_df = pd.DataFrame(raw_rows_auto)[[
         "Allocation",
@@ -667,22 +651,17 @@ if years > 0 and np.any(auto_contribs > 0):
         "Global Median Ending Value",
         "SPX Median Ending Value",
     ]]
-    if section_toggle("Auto Payments Invested — Download & Residual Summary"):
-        st.download_button(
-            "Download auto payments invested table (CSV)",
-            data=raw_auto_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"spend_this_auto_payments_invested_{years}y.csv",
-            mime="text/csv",
-        )
-        # Residual value summary
-        resid_df = pd.DataFrame([
-            {"Buyer": "Frugal", "Vehicles until retirement": int(num_cars_frugal), "Residual Value at retirement": frugal_residual},
-            {"Buyer": "Non-frugal", "Vehicles until retirement": int(num_cars_non), "Residual Value at retirement": non_residual},
-        ])
-        resid_disp = resid_df.copy()
-        resid_disp["Residual Value at retirement"] = resid_disp["Residual Value at retirement"].map(lambda v: f"${v:,.0f}")
-        st.subheader("Auto Residual Value Summary (Informational)")
-        st.dataframe(resid_disp, use_container_width=True)
+    st.download_button("Download auto payments invested table (CSV)", data=raw_auto_df.to_csv(index=False).encode("utf-8"), file_name=f"spend_this_auto_payments_invested_{years}y.csv", mime="text/csv")
+
+    # Residual value summary
+    resid_df = pd.DataFrame([
+        {"Buyer": "Frugal", "Vehicles until retirement": int(num_cars_frugal), "Residual Value at retirement": frugal_residual},
+        {"Buyer": "Non-frugal", "Vehicles until retirement": int(num_cars_non), "Residual Value at retirement": non_residual},
+    ])
+    resid_disp = resid_df.copy()
+    resid_disp["Residual Value at retirement"] = resid_disp["Residual Value at retirement"].map(lambda v: f"${v:,.0f}")
+    st.subheader("Auto Residual Value Summary (Informational)")
+    st.dataframe(resid_disp, use_container_width=True)
 else:
     st.info("Auto Purchase Strategy: No positive financed amount or contributions to invest under current settings.")
 
@@ -739,14 +718,13 @@ if years > 0 and has_housing:
         "Global Median Ending Value",
         "SPX Median Ending Value",
     ]]
-    if section_toggle("Housing Payments Invested — Min & Median by Allocation"):
-        st.subheader("Opportunity Cost — Housing Payments Invested (Min & Median by Allocation)")
-        st.caption(
-            f"Housing: invest the **difference** between Spender and Frugal mortgage payments, plus the **down payment difference** at year 0. "
-            f"APR {house_apr:.2f}% • term {int(house_term)} years • DP% {house_down_pct}% (overrides applied if non-zero) • "
-            f"property tax rate {house_tax_rate:.1f}%."
-        )
-        st.dataframe(result_house_df, use_container_width=True)
+    st.subheader("Opportunity Cost — Housing Payments Invested (Min & Median by Allocation)")
+    st.caption(
+        f"Housing: invest the **difference** between Spender and Frugal mortgage payments, plus the **down payment difference** at year 0. "
+        f"APR {house_apr:.2f}% • term {int(house_term)} years • DP% {house_down_pct}% (overrides applied if non-zero) • "
+        f"property tax rate {house_tax_rate:.1f}%."
+    )
+    st.dataframe(result_house_df, use_container_width=True)
 
     raw_house_df = pd.DataFrame(raw_rows_house)[[
         "Allocation",
@@ -755,7 +733,7 @@ if years > 0 and has_housing:
         "Global Median Ending Value",
         "SPX Median Ending Value",
     ]]
-    # st.download_button("Download housing payments invested table (CSV)", data=raw_house_df.to_csv(index=False).encode("utf-8"), file_name=f"spend_this_housing_payments_invested_{years}y.csv", mime="text/csv")
+    st.download_button("Download housing payments invested table (CSV)", data=raw_house_df.to_csv(index=False).encode("utf-8"), file_name=f"spend_this_housing_payments_invested_{years}y.csv", mime="text/csv")
 
 # ===========================
 # Median Withdrawal Tables
@@ -787,20 +765,19 @@ if has_lump and not raw_df.empty:
         lump_disp = lump_df.copy()
         lump_disp["Annual Retirement Income (Historically)"] = lump_disp["Annual Retirement Income (Historically)"].map(lambda v: f"${v:,.0f}")
         lump_disp["Total Median Retirement Income"] = lump_disp["Total Median Retirement Income"].map(lambda v: f"${v:,.0f}")
-        if section_toggle("Median Withdrawal — Lump Sum"):
-            st.subheader("Median Withdrawal — Lump Sum")
-            st.caption("Ending portfolio uses the highest median ending value across allocations; withdrawals assume a 60% Equity / 40% Fixed portfolio. Expenses: Global 20 bps; SPX 5 bps.")
-            st.dataframe(lump_disp, use_container_width=True)
-            # st.download_button("Download median withdrawal — Lump Sum (CSV)", data=lump_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_lumpsum_{years}y.csv", mime="text/csv")
-            try:
-                for _, r in lump_df.iterrows():
-                    total_val = float(r["Total Median Retirement Income"])
-                    p = str(r.get("Portfolio", "")).strip().lower()
-                    portfolio_label = "the Global portfolio" if p == "global" else "the S&P 500 (SPX) portfolio"
-                    _msg = (f"Spending ${thinking_spend:,.0f} instead of ${whatif_spend:,.0f} cost you ${total_val:,.0f} in lifetime retirement income by investing the difference in spending in {portfolio_label}.")
-                    st.markdown(f"<div style='white-space: normal; word-break: normal; overflow-wrap: break-word;'><strong>{_msg}</strong></div>", unsafe_allow_html=True)
-            except Exception:
-                pass
+        st.subheader("Median Withdrawal — Lump Sum")
+        st.caption("Ending portfolio uses the highest median ending value across allocations; withdrawals assume a 60% Equity / 40% Fixed portfolio. Expenses: Global 20 bps; SPX 5 bps.")
+        st.dataframe(lump_disp, use_container_width=True)
+        st.download_button("Download median withdrawal — Lump Sum (CSV)", data=lump_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_lumpsum_{years}y.csv", mime="text/csv")
+        try:
+            for _, r in lump_df.iterrows():
+                total_val = float(r["Total Median Retirement Income"])
+                p = str(r.get("Portfolio", "")).strip().lower()
+                portfolio_label = "the Global portfolio" if p == "global" else "the S&P 500 (SPX) portfolio"
+                _msg = (f"Spending ${thinking_spend:,.0f} instead of ${whatif_spend:,.0f} cost you ${total_val:,.0f} in lifetime retirement income by investing the difference in spending in {portfolio_label}.")
+                st.markdown(f"<div style='white-space: normal; word-break: normal; overflow-wrap: break-word;'><strong>{_msg}</strong></div>", unsafe_allow_html=True)
+        except Exception:
+            pass
     else:
         pass
 
@@ -826,21 +803,20 @@ for idx, raw_rows_annual in enumerate(raw_rows_annual_list, start=1):
         annual_disp = annual_df.copy()
         annual_disp["Annual Retirement Income (Historically)"] = annual_disp["Annual Retirement Income (Historically)"].map(lambda v: f"${v:,.0f}")
         annual_disp["Total Median Retirement Income"] = annual_disp["Total Median Retirement Income"].map(lambda v: f"${v:,.0f}")
-        if section_toggle(f"Median Withdrawal — Annual Habit {idx} Only"):
-            st.subheader(f"Median Withdrawal — Annual Habit {idx} Only")
-            st.caption("Ending portfolio uses the highest median ending value (annual contributions only) across allocations; withdrawals assume a 60% Equity / 40% Fixed portfolio. Expenses: Global 20 bps; SPX 5 bps.")
-            st.dataframe(annual_disp, use_container_width=True)
-            # st.download_button(f"Download median withdrawal — Annual Habit {idx} Only (CSV)", data=annual_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_annual_only_habit{idx}_{years}y.csv", mime="text/csv")
-            try:
-                h = habits[idx - 1] if idx - 1 < len(habits) else {"daily":0,"frugal":0}
-                for _, r in annual_df.iterrows():
-                    total_val = float(r["Total Median Retirement Income"])
-                    p = str(r.get("Portfolio", "")).strip().lower()
-                    portfolio_label = "the Global portfolio" if p == "global" else "the S&P 500 (SPX) portfolio"
-                    _msg_h = (f"Spending ${h['daily']:,.2f} instead of ${h['frugal']:,.2f} cost you ${total_val:,.0f} in lifetime retirement income by investing the difference in spending amounts in {portfolio_label}.")
-                    st.markdown(f"<div style='white-space: normal; word-break: normal; overflow-wrap: break-word;'><strong>{_msg_h}</strong></div>", unsafe_allow_html=True)
-            except Exception:
-                pass
+        st.subheader(f"Median Withdrawal — Annual Habit {idx} Only")
+        st.caption("Ending portfolio uses the highest median ending value (annual contributions only) across allocations; withdrawals assume a 60% Equity / 40% Fixed portfolio. Expenses: Global 20 bps; SPX 5 bps.")
+        st.dataframe(annual_disp, use_container_width=True)
+        st.download_button(f"Download median withdrawal — Annual Habit {idx} Only (CSV)", data=annual_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_annual_only_habit{idx}_{years}y.csv", mime="text/csv")
+        try:
+            h = habits[idx - 1] if idx - 1 < len(habits) else {"daily":0,"frugal":0}
+            for _, r in annual_df.iterrows():
+                total_val = float(r["Total Median Retirement Income"])
+                p = str(r.get("Portfolio", "")).strip().lower()
+                portfolio_label = "the Global portfolio" if p == "global" else "the S&P 500 (SPX) portfolio"
+                _msg_h = (f"Spending ${h['daily']:,.2f} instead of ${h['frugal']:,.2f} cost you ${total_val:,.0f} in lifetime retirement income by investing the difference in spending amounts in {portfolio_label}.")
+                st.markdown(f"<div style='white-space: normal; word-break: normal; overflow-wrap: break-word;'><strong>{_msg_h}</strong></div>", unsafe_allow_html=True)
+        except Exception:
+            pass
     else:
         st.info(f"Median withdrawals not found for Annual Habit {idx} scenario.")
 
@@ -867,11 +843,10 @@ if 'raw_auto_df' in locals() and isinstance(raw_auto_df, pd.DataFrame) and not r
         auto_med_disp = auto_med_df.copy()
         auto_med_disp["Annual Retirement Income (Historically)"] = auto_med_disp["Annual Retirement Income (Historically)"].map(lambda v: f"${v:,.0f}")
         auto_med_disp["Total Median Retirement Income"] = auto_med_disp["Total Median Retirement Income"].map(lambda v: f"${v:,.0f}")
-        if section_toggle("Median Withdrawal — Auto Payments Invested"):
-            st.subheader("Median Withdrawal — Auto Payments Invested")
-            st.caption("Ending portfolio uses the highest median ending value (auto payments invested) across allocations; withdrawals assume a 60/40 portfolio. Expenses: Global 20 bps; SPX 5 bps.")
-            st.dataframe(auto_med_disp, use_container_width=True)
-        # st.download_button("Download median withdrawal — Auto Payments Invested (CSV)", data=auto_med_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_auto_payments_invested_{years}y.csv", mime="text/csv")
+        st.subheader("Median Withdrawal — Auto Payments Invested")
+        st.caption("Ending portfolio uses the highest median ending value (auto payments invested) across allocations; withdrawals assume a 60/40 portfolio. Expenses: Global 20 bps; SPX 5 bps.")
+        st.dataframe(auto_med_disp, use_container_width=True)
+        st.download_button("Download median withdrawal — Auto Payments Invested (CSV)", data=auto_med_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_auto_payments_invested_{years}y.csv", mime="text/csv")
 
 # Housing — median withdrawal table
 if 'raw_house_df' in locals() and isinstance(raw_house_df, pd.DataFrame) and not raw_house_df.empty:
@@ -899,7 +874,7 @@ if 'raw_house_df' in locals() and isinstance(raw_house_df, pd.DataFrame) and not
         st.subheader("Median Withdrawal — Housing")
         st.caption("Housing difference stream includes payment differences (yearly, end-of-year), property tax difference each year, and down payment difference (year 0, beginning-of-year). Withdrawals assume a 60/40 portfolio; expenses: Global 20 bps; SPX 5 bps.")
         st.dataframe(housing_disp, use_container_width=True)
-        # st.download_button("Download median withdrawal — Housing (CSV)", data=housing_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_housing_{years}y.csv", mime="text/csv")
+        st.download_button("Download median withdrawal — Housing (CSV)", data=housing_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_housing_{years}y.csv", mime="text/csv")
         try:
             for _, r in housing_df.iterrows():
                 total_val = float(r["Total Median Retirement Income"])
@@ -1022,16 +997,15 @@ try:
     for c in [col for col in ev_disp.columns if col != "Portfolio"]:
         ev_disp[c] = ev_disp[c].map(lambda v: f"${float(v):,.0f}")
 
-    if section_toggle("Grand Total — Ending Values (Min & Median) across Streams"):
-        st.subheader("Grand Total — Ending Values (Min & Median) across Streams")
-        st.caption("For each stream, 'Median' uses the allocation with the highest median ending value; 'Minimum' shows the worst historical ending value at that same allocation. Totals sum across Lump, Annual Habits, Auto, and Housing.")
-        st.dataframe(ev_disp, use_container_width=True)
-    # st.download_button(
-    #     "Download grand total ending values (CSV)",
-    #     data=grand_ending_df.to_csv(index=False).encode("utf-8"),
-    #     file_name=f"grand_total_ending_values_{years}y.csv",
-    #     mime="text/csv",
-    # )
+    st.subheader("Grand Total — Ending Values (Min & Median) across Streams")
+    st.caption("For each stream, 'Median' uses the allocation with the highest median ending value; 'Minimum' shows the worst historical ending value at that same allocation. Totals sum across Lump, Annual Habits, Auto, and Housing.")
+    st.dataframe(ev_disp, use_container_width=True)
+    st.download_button(
+        "Download grand total ending values (CSV)",
+        data=grand_ending_df.to_csv(index=False).encode("utf-8"),
+        file_name=f"grand_total_ending_values_{years}y.csv",
+        mime="text/csv",
+    )
 except Exception:
     pass
 
@@ -1154,15 +1128,14 @@ try:
     for col in [c for c in keep_cols if c not in id_cols]:
         grand_disp[col] = grand_disp[col].map(lambda v: f"${v:,.0f}")
 
-    if section_toggle("Median Withdrawal — Grand Total"):
-        st.subheader("Median Withdrawal — Grand Total (Lump + All Annual Habits + Auto + Housing)")
-        st.dataframe(grand_disp, use_container_width=True)
-    # st.download_button(
-    #     "Download median withdrawal — Grand Total (CSV)",
-    #     data=grand_df.to_csv(index=False).encode("utf-8"),
-    #     file_name=f"median_withdrawal_grand_total_{years}y.csv",
-    #     mime="text/csv"
-    # )
+    st.subheader("Median Withdrawal — Grand Total (Lump + All Annual Habits + Auto + Housing)")
+    st.dataframe(grand_disp, use_container_width=True)
+    st.download_button(
+        "Download median withdrawal — Grand Total (CSV)",
+        data=grand_df.to_csv(index=False).encode("utf-8"),
+        file_name=f"median_withdrawal_grand_total_{years}y.csv",
+        mime="text/csv"
+    )
 
 except Exception:
     pass

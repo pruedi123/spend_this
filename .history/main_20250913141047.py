@@ -4,15 +4,9 @@ import numpy as np
 import re
 
 # ---- Per-section view toggle ----
-def section_toggle(label: str, default_show: bool = False) -> bool:
-    """Return True if the section should be shown; unique key per label.
-    Honors a master override radio stored in st.session_state['master_view'].
-    """
-    master = st.session_state.get("master_view", "Hide all details")
-    if master in ("Show all details", "Hide all details"):
-        idx = 1 if (master == "Show all details") else 0
-    else:
-        idx = 1 if default_show else 0
+def section_toggle(label: str, default_show: bool = True) -> bool:
+    """Return True if the section should be shown; unique key per label."""
+    idx = 1 if default_show else 0
     choice = st.radio(
         f"View — {label}",
         ["Hide details", "Show details"],
@@ -180,14 +174,6 @@ def build_payment_vector(price: float, initial_down: float, apr_pct: float, year
 # ---------------------------
 
 st.title("Spend This — Opportunity Cost Calculator")
-# Master view: default to Hide all details
-MASTER_CHOICE = st.radio(
-    "Master view",
-    ["Hide all details", "Show all details"],
-    index=0,
-    horizontal=True,
-    key="master_view",
-)
 top_box = st.container()
 
 with st.sidebar:
@@ -867,10 +853,9 @@ if 'raw_auto_df' in locals() and isinstance(raw_auto_df, pd.DataFrame) and not r
         auto_med_disp = auto_med_df.copy()
         auto_med_disp["Annual Retirement Income (Historically)"] = auto_med_disp["Annual Retirement Income (Historically)"].map(lambda v: f"${v:,.0f}")
         auto_med_disp["Total Median Retirement Income"] = auto_med_disp["Total Median Retirement Income"].map(lambda v: f"${v:,.0f}")
-        if section_toggle("Median Withdrawal — Auto Payments Invested"):
-            st.subheader("Median Withdrawal — Auto Payments Invested")
-            st.caption("Ending portfolio uses the highest median ending value (auto payments invested) across allocations; withdrawals assume a 60/40 portfolio. Expenses: Global 20 bps; SPX 5 bps.")
-            st.dataframe(auto_med_disp, use_container_width=True)
+        st.subheader("Median Withdrawal — Auto Payments Invested")
+        st.caption("Ending portfolio uses the highest median ending value (auto payments invested) across allocations; withdrawals assume a 60/40 portfolio. Expenses: Global 20 bps; SPX 5 bps.")
+        st.dataframe(auto_med_disp, use_container_width=True)
         # st.download_button("Download median withdrawal — Auto Payments Invested (CSV)", data=auto_med_df.to_csv(index=False).encode("utf-8"), file_name=f"median_withdrawal_auto_payments_invested_{years}y.csv", mime="text/csv")
 
 # Housing — median withdrawal table
@@ -1022,10 +1007,9 @@ try:
     for c in [col for col in ev_disp.columns if col != "Portfolio"]:
         ev_disp[c] = ev_disp[c].map(lambda v: f"${float(v):,.0f}")
 
-    if section_toggle("Grand Total — Ending Values (Min & Median) across Streams"):
-        st.subheader("Grand Total — Ending Values (Min & Median) across Streams")
-        st.caption("For each stream, 'Median' uses the allocation with the highest median ending value; 'Minimum' shows the worst historical ending value at that same allocation. Totals sum across Lump, Annual Habits, Auto, and Housing.")
-        st.dataframe(ev_disp, use_container_width=True)
+    st.subheader("Grand Total — Ending Values (Min & Median) across Streams")
+    st.caption("For each stream, 'Median' uses the allocation with the highest median ending value; 'Minimum' shows the worst historical ending value at that same allocation. Totals sum across Lump, Annual Habits, Auto, and Housing.")
+    st.dataframe(ev_disp, use_container_width=True)
     # st.download_button(
     #     "Download grand total ending values (CSV)",
     #     data=grand_ending_df.to_csv(index=False).encode("utf-8"),
@@ -1154,9 +1138,8 @@ try:
     for col in [c for c in keep_cols if c not in id_cols]:
         grand_disp[col] = grand_disp[col].map(lambda v: f"${v:,.0f}")
 
-    if section_toggle("Median Withdrawal — Grand Total"):
-        st.subheader("Median Withdrawal — Grand Total (Lump + All Annual Habits + Auto + Housing)")
-        st.dataframe(grand_disp, use_container_width=True)
+    st.subheader("Median Withdrawal — Grand Total (Lump + All Annual Habits + Auto + Housing)")
+    st.dataframe(grand_disp, use_container_width=True)
     # st.download_button(
     #     "Download median withdrawal — Grand Total (CSV)",
     #     data=grand_df.to_csv(index=False).encode("utf-8"),

@@ -4,15 +4,9 @@ import numpy as np
 import re
 
 # ---- Per-section view toggle ----
-def section_toggle(label: str, default_show: bool = False) -> bool:
-    """Return True if the section should be shown; unique key per label.
-    Honors a master override radio stored in st.session_state['master_view'].
-    """
-    master = st.session_state.get("master_view", "Hide all details")
-    if master in ("Show all details", "Hide all details"):
-        idx = 1 if (master == "Show all details") else 0
-    else:
-        idx = 1 if default_show else 0
+def section_toggle(label: str, default_show: bool = True) -> bool:
+    """Return True if the section should be shown; unique key per label."""
+    idx = 1 if default_show else 0
     choice = st.radio(
         f"View — {label}",
         ["Hide details", "Show details"],
@@ -180,14 +174,6 @@ def build_payment_vector(price: float, initial_down: float, apr_pct: float, year
 # ---------------------------
 
 st.title("Spend This — Opportunity Cost Calculator")
-# Master view: default to Hide all details
-MASTER_CHOICE = st.radio(
-    "Master view",
-    ["Hide all details", "Show all details"],
-    index=0,
-    horizontal=True,
-    key="master_view",
-)
 top_box = st.container()
 
 with st.sidebar:
