@@ -1527,7 +1527,7 @@ try:
         with r3c2:
             st.markdown(
                 f"""
-                <div class='info-card min'>
+                <div class='info-card'>
                   <h4>Minimum Ending Value Total</h4>
                   <div class='value'>{_fmt(min_total_spx if (min_total_spx is not None and np.isfinite(min_total_spx)) else 0)}</div>
                   <div class='sub'>SP500 Strategy</div>

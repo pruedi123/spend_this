@@ -1414,11 +1414,7 @@ try:
                 opacity: 0.95; 
                 font-size: 0.9rem; 
                 margin-top: 6px; 
-              }      .info-card.min {
-        background: #198754; /* Bootstrap green */
-        color: #ffffff;
-        border: 1px solid #145c32;
-      }
+              }
             </style>
             """,
             unsafe_allow_html=True,
@@ -1516,7 +1512,7 @@ try:
         with r3c1:
             st.markdown(
                 f"""
-                <div class='info-card min'>
+                <div class='info-card'>
                   <h4>Minimum Ending Value Total</h4>
                   <div class='value'>{_fmt(min_total_global if (min_total_global is not None and np.isfinite(min_total_global)) else 0)}</div>
                   <div class='sub'>Global Strategy</div>
@@ -1527,7 +1523,7 @@ try:
         with r3c2:
             st.markdown(
                 f"""
-                <div class='info-card min'>
+                <div class='info-card'>
                   <h4>Minimum Ending Value Total</h4>
                   <div class='value'>{_fmt(min_total_spx if (min_total_spx is not None and np.isfinite(min_total_spx)) else 0)}</div>
                   <div class='sub'>SP500 Strategy</div>
@@ -1569,7 +1565,7 @@ try:
         with r4c1:
             st.markdown(
                 f"""
-                <div class='info-card min'>
+                <div class='info-card'>
                   <h4>Minimum Lifetime Retirement Income</h4>
                   <div class='value'>{_fmt(min_life_g if (min_life_g is not None and np.isfinite(min_life_g)) else 0)}</div>
                   <div class='sub'>Global Strategy</div>
@@ -1580,7 +1576,7 @@ try:
         with r4c2:
             st.markdown(
                 f"""
-                <div class='info-card min'>
+                <div class='info-card'>
                   <h4>Minimum Lifetime Retirement Income</h4>
                   <div class='value'>{_fmt(min_life_s if (min_life_s is not None and np.isfinite(min_life_s)) else 0)}</div>
                   <div class='sub'>SP500 Strategy</div>

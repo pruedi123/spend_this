@@ -1414,11 +1414,29 @@ try:
                 opacity: 0.95; 
                 font-size: 0.9rem; 
                 margin-top: 6px; 
-              }      .info-card.min {
-        background: #198754; /* Bootstrap green */
-        color: #ffffff;
-        border: 1px solid #145c32;
-      }
+              }
+              .info-card-min {
+                background: #198754; /* pleasant green (Bootstrap success) */
+                color: #ffffff;
+                border: 1px solid #146c43; 
+                border-radius: 8px; 
+                padding: 12px 14px; 
+                text-align: center;
+              }
+              .info-card-min h4 {
+                margin: 0 0 6px 0; 
+                font-weight: 700; 
+              }
+              .info-card-min .value {
+                font-size: 1.25rem; 
+                font-weight: 700; 
+                margin-top: 2px; 
+              }
+              .info-card-min .sub {
+                opacity: 0.95; 
+                font-size: 0.9rem; 
+                margin-top: 6px; 
+              }
             </style>
             """,
             unsafe_allow_html=True,
@@ -1516,7 +1534,7 @@ try:
         with r3c1:
             st.markdown(
                 f"""
-                <div class='info-card min'>
+                <div class='info-card-min'>
                   <h4>Minimum Ending Value Total</h4>
                   <div class='value'>{_fmt(min_total_global if (min_total_global is not None and np.isfinite(min_total_global)) else 0)}</div>
                   <div class='sub'>Global Strategy</div>
@@ -1527,7 +1545,7 @@ try:
         with r3c2:
             st.markdown(
                 f"""
-                <div class='info-card min'>
+                <div class='info-card-min'>
                   <h4>Minimum Ending Value Total</h4>
                   <div class='value'>{_fmt(min_total_spx if (min_total_spx is not None and np.isfinite(min_total_spx)) else 0)}</div>
                   <div class='sub'>SP500 Strategy</div>
@@ -1537,89 +1555,3 @@ try:
             )
         with r3c3:
             st.write("")
-
-        # small spacer between the two minimum rows
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-
-        # --- Summary cards (MIN ROWS): Minimum Lifetime Retirement Income (Global/SP500) ---
-        # Compute minimum annual from min withdrawal × min ending value; treat >1.0 as $/yr
-        _yrs_int = int(retirement_years)
-        def _lookup_min_withdrawal_local(df_w: pd.DataFrame | None, yrs: int):
-            if df_w is None:
-                return None
-            try:
-                return float(df_w.loc[df_w["Years"] == yrs, "Min"].iloc[0])
-            except Exception:
-                return None
-        _min_wr_g = _lookup_min_withdrawal_local(locals().get("df_withdrawals"), _yrs_int)
-        _min_wr_s = _lookup_min_withdrawal_local(locals().get("df_withdrawals_spx"), _yrs_int)
-        def _annual_from_rate_local(ev: float | None, wr: float | None) -> float | None:
-            try:
-                if ev is None or wr is None or not np.isfinite(ev) or not np.isfinite(wr):
-                    return None
-                return float(wr) * float(ev) if float(wr) <= 1.0 else float(wr)
-            except Exception:
-                return None
-        min_ann_g = _annual_from_rate_local(min_total_global, _min_wr_g)
-        min_ann_s = _annual_from_rate_local(min_total_spx,    _min_wr_s)
-        min_life_g = (min_ann_g * _yrs_int) if (min_ann_g is not None and np.isfinite(min_ann_g)) else None
-        min_life_s = (min_ann_s * _yrs_int) if (min_ann_s is not None and np.isfinite(min_ann_s)) else None
-
-        r4c1, r4c2, r4c3 = st.columns(3)
-        with r4c1:
-            st.markdown(
-                f"""
-                <div class='info-card min'>
-                  <h4>Minimum Lifetime Retirement Income</h4>
-                  <div class='value'>{_fmt(min_life_g if (min_life_g is not None and np.isfinite(min_life_g)) else 0)}</div>
-                  <div class='sub'>Global Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r4c2:
-            st.markdown(
-                f"""
-                <div class='info-card min'>
-                  <h4>Minimum Lifetime Retirement Income</h4>
-                  <div class='value'>{_fmt(min_life_s if (min_life_s is not None and np.isfinite(min_life_s)) else 0)}</div>
-                  <div class='sub'>SP500 Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r4c3:
-            st.write("")
-
-        # ---------------------- HOVER, HEADER, SUMMARY, CAPTION MOVED HERE ----------------------
-        # Hover just above Plan Summary
-        st.markdown(
-            """
-            <style>
-            .ttx { position: relative; display: inline-block; cursor: help; }
-            .ttx .ttx-box {
-                visibility: hidden; opacity: 0; transition: opacity 0.15s ease-in;
-                position: absolute; z-index: 1000; top: 1.6rem; left: 0;
-                width: min(680px, 90vw); padding: 10px 12px; border-radius: 6px;
-                background: #111; color: #fff; text-align: left; box-shadow: 0 6px 16px rgba(0,0,0,0.35);
-                line-height: 1.45; font-size: 0.9rem;
-            }
-            .ttx:hover .ttx-box { visibility: visible; opacity: 1; }
-            </style>
-            <div style='margin: 0.5rem 0 0.25rem 0;'>
-              <span class='ttx'>ℹ️ <u>How to interpret these values (hover)</u>
-                <div class='ttx-box'>%s</div>
-              </span>
-            </div>
-            """ % _hover_html,
-            unsafe_allow_html=True
-        )
-
-        # Plan Summary header and text (now below hover)
-        st.subheader("Plan Summary (Plain Language)")
-        st.text(summary_plain)
-
-        # Small footnote on assumptions (now below Plan Summary)
-        st.caption("Assumptions: annual contributions invested at end-of-year; down-payment differences at beginning-of-year; results shown for Global (20 bps) and S&P 500 (5 bps) portfolios using historical windows.")
-except Exception:
-    pass
