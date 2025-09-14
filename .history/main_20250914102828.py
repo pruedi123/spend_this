@@ -841,6 +841,15 @@ def _lookup_median_withdrawal(df_w: pd.DataFrame | None, yrs: int):
     except Exception:
         return None
 
+# Minimum withdrawal rate lookup helper
+def _lookup_min_withdrawal(df_w: pd.DataFrame | None, yrs: int):
+    if df_w is None:
+        return None
+    try:
+        return float(df_w.loc[df_w["Years"] == yrs, "Min"].iloc[0])
+    except Exception:
+        return None
+
 median_withdrawal_g = _lookup_median_withdrawal(df_withdrawals, int(retirement_years))
 median_withdrawal_s = _lookup_median_withdrawal(df_withdrawals_spx, int(retirement_years))
 
@@ -1240,6 +1249,92 @@ try:
 except Exception:
     pass
 
+# ===========================
+# Minimum Withdrawal — Grand Total (Min EV × Min Withdrawal Rate)
+# ===========================
+try:
+    # 1) Pull min withdrawal rates for the selected retirement horizon
+    min_withdrawal_g = _lookup_min_withdrawal(df_withdrawals, int(retirement_years))
+    min_withdrawal_s = _lookup_min_withdrawal(df_withdrawals_spx, int(retirement_years))
+
+    # 2) Get Grand Total — Minimum Ending Value for Global/SPX
+    def _pull_min_total(df_: pd.DataFrame | None, port: str) -> float | None:
+        try:
+            if isinstance(df_, pd.DataFrame) and not df_.empty:
+                row = df_.loc[df_["Portfolio"].astype(str).str.lower() == port.lower()]
+                if not row.empty:
+                    return float(row["Grand Total — Minimum Ending Value"].iloc[0])
+        except Exception:
+            return None
+        return None
+
+    min_total_global = _pull_min_total(locals().get("grand_ending_df"), "Global")
+    min_total_spx    = _pull_min_total(locals().get("grand_ending_df"), "SPX")
+
+    # Fallbacks if table not built but component vars exist
+    if (min_total_global is None or not np.isfinite(min_total_global)) and "grand_min_g" in locals():
+        min_total_global = float(grand_min_g)
+    if (min_total_spx is None or not np.isfinite(min_total_spx)) and "grand_min_s" in locals():
+        min_total_spx = float(grand_min_s)
+
+    # 3) Compute annual and lifetime incomes using min withdrawal rate
+    def _calc_min_income(base_ev: float | None, w_rate: float | None, yrs: int) -> tuple[float | None, float | None]:
+        try:
+            if base_ev is None or w_rate is None or not np.isfinite(base_ev) or not np.isfinite(w_rate):
+                return None, None
+            # If withdrawal is <= 1.0 treat as rate; otherwise treat as annual $ already
+            annual = (w_rate * base_ev) if (w_rate <= 1.0) else float(w_rate)
+            lifetime = annual * float(yrs)
+            return float(annual), float(lifetime)
+        except Exception:
+            return None, None
+
+    g_ann, g_life = _calc_min_income(min_total_global, min_withdrawal_g, int(retirement_years))
+    s_ann, s_life = _calc_min_income(min_total_spx,    min_withdrawal_s, int(retirement_years))
+
+    # 4) Build display table
+    rows_min = []
+    if g_ann is not None:
+        rows_min.append({
+            "Portfolio": "Global",
+            "Years": int(retirement_years),
+            "Grand Total — Minimum Ending Value": min_total_global,
+            "Minimum Withdrawal Rate": min_withdrawal_g,
+            "Minimum Annual Income": g_ann,
+            "Minimum Lifetime Income": g_life,
+        })
+    if s_ann is not None:
+        rows_min.append({
+            "Portfolio": "SPX",
+            "Years": int(retirement_years),
+            "Grand Total — Minimum Ending Value": min_total_spx,
+            "Minimum Withdrawal Rate": min_withdrawal_s,
+            "Minimum Annual Income": s_ann,
+            "Minimum Lifetime Income": s_life,
+        })
+
+    if rows_min:
+        min_withdrawal_df = pd.DataFrame(rows_min)
+        # Format for display
+        disp = min_withdrawal_df.copy()
+        def _fmt_rate(x):
+            try:
+                # If looks like a rate (<=1), show as percent; else show as $ (rare)
+                return f"{float(x)*100:.2f}%" if float(x) <= 1.0 else f"${float(x):,.0f}"
+            except Exception:
+                return str(x)
+        disp["Grand Total — Minimum Ending Value"] = disp["Grand Total — Minimum Ending Value"].map(lambda v: f"${float(v):,.0f}")
+        disp["Minimum Withdrawal Rate"] = disp["Minimum Withdrawal Rate"].map(_fmt_rate)
+        disp["Minimum Annual Income"] = disp["Minimum Annual Income"].map(lambda v: f"${float(v):,.0f}")
+        disp["Minimum Lifetime Income"] = disp["Minimum Lifetime Income"].map(lambda v: f"${float(v):,.0f}")
+
+        if section_toggle("Minimum Withdrawal — Grand Total (Min EV × Min Rate)"):
+            st.subheader("Minimum Withdrawal — Grand Total (Min Ending Value × Min Withdrawal Rate)")
+            st.caption("Minimum annual and lifetime income using the worst historical ending values and the minimum withdrawal rates for the selected retirement horizon.")
+            st.dataframe(disp, use_container_width=True)
+except Exception:
+    pass
+
 # ---------------------------
 # Plan Summary (Plain Language)
 # ---------------------------
@@ -1345,6 +1440,75 @@ try:
         )
 
         # ===== Four summary containers =====
+
+        # --- Extra cards: (Row 1) Minimum Ending Value Totals; (Row 2) Minimum Lifetime Income ---
+        def _card(md_title: str, value_num: float | None, md_sub: str):
+            try:
+                val_txt = f"${float(value_num):,.0f}" if value_num is not None and np.isfinite(value_num) else "—"
+            except Exception:
+                val_txt = "—"
+            st.markdown(
+                f"""
+                <div class='info-card'>
+                  <div style='font-weight:700;'>""" + _html.escape(md_title) + """</div>
+                  <div style='font-size:28px; line-height:1.1; margin:6px 0 2px 0;'>""" + _html.escape(val_txt) + """</div>
+                  <div style='opacity:.9;'>""" + _html.escape(md_sub) + """</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        def _safe_pull(df: pd.DataFrame | None, port: str, col: str) -> float | None:
+            try:
+                if isinstance(df, pd.DataFrame) and not df.empty and col in df.columns:
+                    row = df.loc[df["Portfolio"].astype(str).str.lower() == port.lower()]
+                    if not row.empty:
+                        v = float(row[col].iloc[0])
+                        return v
+            except Exception:
+                return None
+            return None
+
+        # ---------- Row 1 (append): Minimum Ending Value Totals ----------
+        # Pull from grand_ending_df computed earlier
+        min_ev_global = _safe_pull(locals().get("grand_ending_df"), "Global", "Grand Total — Minimum Ending Value")
+        min_ev_spx    = _safe_pull(locals().get("grand_ending_df"), "SPX",    "Grand Total — Minimum Ending Value")
+        # Fallbacks if grand_ending_df not built yet
+        if (min_ev_global is None or not np.isfinite(min_ev_global)) and "grand_min_g" in locals():
+            try: min_ev_global = float(grand_min_g)
+            except Exception: pass
+        if (min_ev_spx is None or not np.isfinite(min_ev_spx)) and "grand_min_s" in locals():
+            try: min_ev_spx = float(grand_min_s)
+            except Exception: pass
+
+        c1, c2 = st.columns(2)
+        with c1:
+            _card("Minimum Ending Value Total", min_ev_global, "Global Strategy")
+        with c2:
+            _card("Minimum Ending Value Total", min_ev_spx, "SP500 Strategy")
+
+        # ---------- Row 2 (append): Minimum Lifetime Retirement Income ----------
+        # Compute from min withdrawal rate × min ending value; treat >1.0 as absolute $/yr
+        _yrs = int(retirement_years)
+        w_min_g = _lookup_min_withdrawal(locals().get("df_withdrawals"), _yrs)
+        w_min_s = _lookup_min_withdrawal(locals().get("df_withdrawals_spx"), _yrs)
+        def _annual_from_rate(ev: float | None, wr: float | None) -> float | None:
+            try:
+                if ev is None or wr is None or not np.isfinite(ev) or not np.isfinite(wr):
+                    return None
+                return float(wr) * float(ev) if float(wr) <= 1.0 else float(wr)
+            except Exception:
+                return None
+        min_ann_g = _annual_from_rate(min_ev_global, w_min_g)
+        min_ann_s = _annual_from_rate(min_ev_spx,    w_min_s)
+        min_life_g = (min_ann_g * _yrs) if (min_ann_g is not None and np.isfinite(min_ann_g)) else None
+        min_life_s = (min_ann_s * _yrs) if (min_ann_s is not None and np.isfinite(min_ann_s)) else None
+
+        c3, c4 = st.columns(2)
+        with c3:
+            _card("Minimum Lifetime Retirement Income", min_life_g, "Global Strategy")
+        with c4:
+            _card("Minimum Lifetime Retirement Income", min_life_s, "SP500 Strategy")
         def _safe_total_from_grand(_df, port_name: str, yrs_default: int) -> float | None:
             try:
                 if isinstance(_df, pd.DataFrame) and not _df.empty:

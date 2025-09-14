@@ -225,10 +225,11 @@ if st.session_state.get("__do_reset__", False):
     st.session_state["Finance term (years)"] = 5
     st.session_state["Non-frugal replacement frequency (years)"] = 5
 
-    # Depreciation sliders — leave at widget defaults by clearing state (don’t force to 0)
-    for _k in ("Year 1", "Years 2–5", "Years 6–10", "Years 11+"):
-        if _k in st.session_state:
-            st.session_state.pop(_k)
+    # Depreciation sliders
+    st.session_state["Year 1"] = 0
+    st.session_state["Years 2–5"] = 0
+    st.session_state["Years 6–10"] = 0
+    st.session_state["Years 11+"] = 0
 
     # Housing section
     st.session_state["Spender home price ($)"] = 0

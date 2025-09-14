@@ -257,6 +257,15 @@ MASTER_CHOICE = st.radio(
     horizontal=True,
     key="master_view",
 )
+
+# Card value mode selector (Median/Minimum)
+SUMMARY_EV_MODE = st.radio(
+    "Summary card values",
+    ["Median", "Minimum"],
+    index=0,
+    horizontal=True,
+    key="summary_ev_mode",
+)
 top_box = st.container()
 
 with st.sidebar:
@@ -841,6 +850,15 @@ def _lookup_median_withdrawal(df_w: pd.DataFrame | None, yrs: int):
     except Exception:
         return None
 
+# Minimum withdrawal rate lookup helper
+def _lookup_min_withdrawal(df_w: pd.DataFrame | None, yrs: int):
+    if df_w is None:
+        return None
+    try:
+        return float(df_w.loc[df_w["Years"] == yrs, "Min"].iloc[0])
+    except Exception:
+        return None
+
 median_withdrawal_g = _lookup_median_withdrawal(df_withdrawals, int(retirement_years))
 median_withdrawal_s = _lookup_median_withdrawal(df_withdrawals_spx, int(retirement_years))
 
@@ -1240,6 +1258,92 @@ try:
 except Exception:
     pass
 
+# ===========================
+# Minimum Withdrawal — Grand Total (Min EV × Min Withdrawal Rate)
+# ===========================
+try:
+    # 1) Pull min withdrawal rates for the selected retirement horizon
+    min_withdrawal_g = _lookup_min_withdrawal(df_withdrawals, int(retirement_years))
+    min_withdrawal_s = _lookup_min_withdrawal(df_withdrawals_spx, int(retirement_years))
+
+    # 2) Get Grand Total — Minimum Ending Value for Global/SPX
+    def _pull_min_total(df_: pd.DataFrame | None, port: str) -> float | None:
+        try:
+            if isinstance(df_, pd.DataFrame) and not df_.empty:
+                row = df_.loc[df_["Portfolio"].astype(str).str.lower() == port.lower()]
+                if not row.empty:
+                    return float(row["Grand Total — Minimum Ending Value"].iloc[0])
+        except Exception:
+            return None
+        return None
+
+    min_total_global = _pull_min_total(locals().get("grand_ending_df"), "Global")
+    min_total_spx    = _pull_min_total(locals().get("grand_ending_df"), "SPX")
+
+    # Fallbacks if table not built but component vars exist
+    if (min_total_global is None or not np.isfinite(min_total_global)) and "grand_min_g" in locals():
+        min_total_global = float(grand_min_g)
+    if (min_total_spx is None or not np.isfinite(min_total_spx)) and "grand_min_s" in locals():
+        min_total_spx = float(grand_min_s)
+
+    # 3) Compute annual and lifetime incomes using min withdrawal rate
+    def _calc_min_income(base_ev: float | None, w_rate: float | None, yrs: int) -> tuple[float | None, float | None]:
+        try:
+            if base_ev is None or w_rate is None or not np.isfinite(base_ev) or not np.isfinite(w_rate):
+                return None, None
+            # If withdrawal is <= 1.0 treat as rate; otherwise treat as annual $ already
+            annual = (w_rate * base_ev) if (w_rate <= 1.0) else float(w_rate)
+            lifetime = annual * float(yrs)
+            return float(annual), float(lifetime)
+        except Exception:
+            return None, None
+
+    g_ann, g_life = _calc_min_income(min_total_global, min_withdrawal_g, int(retirement_years))
+    s_ann, s_life = _calc_min_income(min_total_spx,    min_withdrawal_s, int(retirement_years))
+
+    # 4) Build display table
+    rows_min = []
+    if g_ann is not None:
+        rows_min.append({
+            "Portfolio": "Global",
+            "Years": int(retirement_years),
+            "Grand Total — Minimum Ending Value": min_total_global,
+            "Minimum Withdrawal Rate": min_withdrawal_g,
+            "Minimum Annual Income": g_ann,
+            "Minimum Lifetime Income": g_life,
+        })
+    if s_ann is not None:
+        rows_min.append({
+            "Portfolio": "SPX",
+            "Years": int(retirement_years),
+            "Grand Total — Minimum Ending Value": min_total_spx,
+            "Minimum Withdrawal Rate": min_withdrawal_s,
+            "Minimum Annual Income": s_ann,
+            "Minimum Lifetime Income": s_life,
+        })
+
+    if rows_min:
+        min_withdrawal_df = pd.DataFrame(rows_min)
+        # Format for display
+        disp = min_withdrawal_df.copy()
+        def _fmt_rate(x):
+            try:
+                # If looks like a rate (<=1), show as percent; else show as $ (rare)
+                return f"{float(x)*100:.2f}%" if float(x) <= 1.0 else f"${float(x):,.0f}"
+            except Exception:
+                return str(x)
+        disp["Grand Total — Minimum Ending Value"] = disp["Grand Total — Minimum Ending Value"].map(lambda v: f"${float(v):,.0f}")
+        disp["Minimum Withdrawal Rate"] = disp["Minimum Withdrawal Rate"].map(_fmt_rate)
+        disp["Minimum Annual Income"] = disp["Minimum Annual Income"].map(lambda v: f"${float(v):,.0f}")
+        disp["Minimum Lifetime Income"] = disp["Minimum Lifetime Income"].map(lambda v: f"${float(v):,.0f}")
+
+        if section_toggle("Minimum Withdrawal — Grand Total (Min EV × Min Rate)"):
+            st.subheader("Minimum Withdrawal — Grand Total (Min Ending Value × Min Withdrawal Rate)")
+            st.caption("Minimum annual and lifetime income using the worst historical ending values and the minimum withdrawal rates for the selected retirement horizon.")
+            st.dataframe(disp, use_container_width=True)
+except Exception:
+    pass
+
 # ---------------------------
 # Plan Summary (Plain Language)
 # ---------------------------
@@ -1345,60 +1449,105 @@ try:
         )
 
         # ===== Four summary containers =====
-        def _safe_total_from_grand(_df, port_name: str, yrs_default: int) -> float | None:
+        import html as _html
+
+        def _card(md_title: str, value_num: float | None, md_sub: str):
             try:
-                if isinstance(_df, pd.DataFrame) and not _df.empty:
-                    sel = _df.loc[_df["Portfolio"].astype(str).str.lower() == port_name.lower()]
-                    if sel.empty:
-                        return None
-                    if "Total — Grand Total" in _df.columns:
-                        v = float(sel["Total — Grand Total"].iloc[0])
-                        return v
-                    # Fallback: sum any available "Total — *" columns; else Ann * Years
-                    tot_cols = [c for c in _df.columns if c.startswith("Total — ")]
-                    if tot_cols:
-                        return float(sel[tot_cols].fillna(0).astype(float).sum(axis=1).iloc[0])
-                    ann_col = "Annual Retirement Income — Grand Total"
-                    if ann_col in _df.columns:
-                        ann_v = float(sel[ann_col].iloc[0])
-                        yrs_v = float(sel.get("Years", pd.Series([yrs_default])).iloc[0])
-                        return ann_v * yrs_v
+                val_txt = f"${float(value_num):,.0f}" if value_num is not None and np.isfinite(value_num) else "—"
+            except Exception:
+                val_txt = "—"
+            st.markdown(
+                f"""
+                <div class='info-card'>
+                  <div style='font-weight:700;'>""" + _html.escape(md_title) + """</div>
+                  <div style='font-size:28px; line-height:1.1; margin:6px 0 2px 0;'>""" + _html.escape(val_txt) + """</div>
+                  <div style='opacity:.9;'>""" + _html.escape(md_sub) + """</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        def _safe_pull(df: pd.DataFrame | None, port: str, col: str) -> float | None:
+            try:
+                if isinstance(df, pd.DataFrame) and not df.empty and col in df.columns:
+                    row = df.loc[df["Portfolio"].astype(str).str.lower() == port.lower()]
+                    if not row.empty:
+                        return float(row[col].iloc[0])
             except Exception:
                 return None
             return None
 
-        # Prefer grand totals if present; otherwise fall back to lump-sum medians
-        total_global = _safe_total_from_grand(locals().get("grand_df"), "Global", int(retirement_years))
-        total_spx    = _safe_total_from_grand(locals().get("grand_df"), "SPX", int(retirement_years))
+        # Determine which values to show based on radio selection
+        _mode = st.session_state.get("summary_ev_mode", "Median")
+        _yrs = int(retirement_years)
 
-        if (total_global is None or not np.isfinite(total_global)) and "lump_df" in locals() and isinstance(lump_df, pd.DataFrame) and not lump_df.empty:
+        # Pull Ending Value totals from grand_ending_df
+        med_ev_global = _safe_pull(locals().get("grand_ending_df"), "Global", "Grand Total — Median Ending Value")
+        med_ev_spx    = _safe_pull(locals().get("grand_ending_df"), "SPX",    "Grand Total — Median Ending Value")
+        min_ev_global = _safe_pull(locals().get("grand_ending_df"), "Global", "Grand Total — Minimum Ending Value")
+        min_ev_spx    = _safe_pull(locals().get("grand_ending_df"), "SPX",    "Grand Total — Minimum Ending Value")
+
+        # For median lifetime income, prefer grand_df's Total — Grand Total
+        def _pull_median_life(df_: pd.DataFrame | None, port: str) -> float | None:
             try:
-                _g_row = lump_df.loc[lump_df["Portfolio"].astype(str).str.lower() == "global"]
-                if not _g_row.empty:
-                    total_global = float(_g_row["Total Median Retirement Income"].iloc[0])
+                if isinstance(df_, pd.DataFrame) and not df_.empty:
+                    row = df_.loc[df_["Portfolio"].astype(str).str.lower() == port.lower()]
+                    if not row.empty:
+                        if "Total — Grand Total" in df_.columns:
+                            return float(row["Total — Grand Total"].iloc[0])
+                        # Fallback: sum totals or annual × years
+                        ann_cols = [c for c in df_.columns if c.startswith("Annual Retirement Income — ")]
+                        if ann_cols:
+                            years_i = int(row.get("Years", pd.Series([_yrs])).iloc[0])
+                            total_val = float(np.nansum([float(row[c].iloc[0] or 0.0) for c in ann_cols])) * float(years_i)
+                            return total_val
             except Exception:
-                pass
+                return None
+            return None
+
+        med_life_g = _pull_median_life(locals().get("grand_df"), "Global")
+        med_life_s = _pull_median_life(locals().get("grand_df"), "SPX")
+
+        # Minimum lifetime income uses min withdrawal × min ending value
+        w_min_g = _lookup_min_withdrawal(locals().get("df_withdrawals"), _yrs)
+        w_min_s = _lookup_min_withdrawal(locals().get("df_withdrawals_spx"), _yrs)
+        def _annual_from_rate(ev: float | None, wr: float | None) -> float | None:
             try:
-                _s_row = lump_df.loc[lump_df["Portfolio"].astype(str).str.lower().isin(["spx","sp500","s&p 500","s&p500"]) ]
-                if not _s_row.empty:
-                    total_spx = float(_s_row["Total Median Retirement Income"].iloc[0])
+                if ev is None or wr is None or not np.isfinite(ev) or not np.isfinite(wr):
+                    return None
+                return float(wr) * float(ev) if float(wr) <= 1.0 else float(wr)
             except Exception:
-                pass
+                return None
+        min_ann_g = _annual_from_rate(min_ev_global, w_min_g)
+        min_ann_s = _annual_from_rate(min_ev_spx,    w_min_s)
+        min_life_g = (min_ann_g * _yrs) if (min_ann_g is not None and np.isfinite(min_ann_g)) else None
+        min_life_s = (min_ann_s * _yrs) if (min_ann_s is not None and np.isfinite(min_ann_s)) else None
 
+        # Choose labels & values according to mode
+        if _mode == "Minimum":
+            ev_title = "Minimum Ending Value Total"
+            life_title = "Minimum Lifetime Retirement Income"
+            g_ev, s_ev = min_ev_global, min_ev_spx
+            g_life, s_life = min_life_g, min_life_s
+        else:
+            ev_title = "Median Ending Value Total"
+            life_title = "Median Lifetime Retirement Income"
+            g_ev, s_ev = med_ev_global, med_ev_spx
+            g_life, s_life = med_life_g, med_life_s
 
-        spend_this_val = whatif_spend  # frugal value
-        not_this_val   = thinking_spend # non-frugal value
+        # Row 1: Ending Value totals (Global, SP500)
+        r1c1, r1c2 = st.columns(2)
+        with r1c1:
+            _card(ev_title, g_ev, "Global Strategy")
+        with r1c2:
+            _card(ev_title, s_ev, "SP500 Strategy")
 
-        # --- Card styles for summary boxes ---
-        st.markdown(
-            """
-            <style>
-              .info-card { 
-                background: #0b5ed7; /* bootstrap primary-ish */
-                color: #ffffff;
-                border: 1px solid #084298; 
-                border-radius: 8px; 
-                padding: 12px 14px; 
+        # Row 2: Lifetime income totals (Global, SP500)
+        r2c1, r2c2 = st.columns(2)
+        with r2c1:
+            _card(life_title, g_life, "Global Strategy")
+        with r2c2:
+            _card(life_title, s_life, "SP500 Strategy")
                 text-align: center; /* center all text */
               }
               .info-card h4 { 
