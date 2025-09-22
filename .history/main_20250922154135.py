@@ -890,11 +890,10 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
         st.subheader("Opportunity Cost — Auto Payments Invested (Min & Median by Allocation)")
         st.caption("Auto sticker prices are escalated by monthly deflators every 12 months (start, +12, +24, +36, …) per historical window; the payment difference is invested using real returns.")
         st.dataframe(result_auto_df, width='stretch')
-        # Show allocation used for the global strategy median value (compute from raw_rows_auto)
+        # Show allocation used for the global strategy median value
         try:
-            _tmp_auto_df = pd.DataFrame(raw_rows_auto)[["Allocation", "Global Median Ending Value"]]
-            best_alloc_idx = int(np.nanargmax(pd.to_numeric(_tmp_auto_df["Global Median Ending Value"], errors="coerce").values))
-            best_alloc = _tmp_auto_df.iloc[best_alloc_idx]["Allocation"]
+            best_alloc_idx = int(np.nanargmax(pd.to_numeric(raw_auto_df["Global Median Ending Value"], errors="coerce").values))
+            best_alloc = raw_auto_df.iloc[best_alloc_idx]["Allocation"]
             st.caption(f"Global strategy median is shown at best allocation = {best_alloc}, across all historical windows.")
         except Exception:
             pass
