@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
+import os
 
 # ---- Per-section view toggle ----
 def section_toggle(label: str, default_show: bool = False) -> bool:
@@ -149,137 +150,55 @@ def variable_annuity_fv_from_window(window: np.ndarray, contrib_series: np.ndarr
     weights = suffix_including if (timing == "begin") else suffix_excluding
     return float(np.sum(c * weights))
 
-# ---------------------------
-# Helpers: CPI deflators (auto price levels)
-# ---------------------------
-
-def _load_increase_deflators() -> tuple[np.ndarray | None, str]:
-    """Try to load monthly increase_factor deflators.
-    Priority: CSV next to app (increase_factors.csv -> cpi_increase.csv),
-    then XLSX 'cpi_factors.xlsx' (sheet increase_factors -> cpi_increase).
-    Returns (inc_array_or_None, meta_string).
-    """
-    meta = ""
-    # 1) CSVs first (no openpyxl dependency)
-    for name in ("increase_factors.csv", "cpi_increase.csv"):
-        try:
-            df = pd.read_csv(name)
-            col = "increase_factor" if "increase_factor" in df.columns else None
-            if col is None:
-                for c in df.columns:
-                    s = str(c).strip().lower().replace(" ", "")
-                    if "increase" in s and "factor" in s:
-                        col = c; break
-            if col is None:
-                continue
-            inc = pd.to_numeric(df[col], errors="coerce").fillna(1.0).to_numpy(dtype=float)
-            return inc, f"csv:{name} col={col} n={inc.size}"
-        except Exception:
-            pass
-    # 2) XLSX as a fallback (requires openpyxl)
-    try:
-        xlsx_path = "cpi_factors.xlsx"
-        for sheet in ("increase_factors", "cpi_increase"):
-            try:
-                df = pd.read_excel(xlsx_path, sheet_name=sheet)
-            except Exception:
-                continue
-            col = "increase_factor" if "increase_factor" in df.columns else None
-            if col is None:
-                for c in df.columns:
-                    s = str(c).strip().lower().replace(" ", "")
-                    if "increase" in s and "factor" in s:
-                        col = c; break
-            if col is None:
-                continue
-            ser = pd.to_numeric(df[col], errors="coerce")
-            # If it looks like a >1 growth multiplier (e.g., 12 mo factor), invert to get deflator
-            if ser.dropna().median() > 1.05:
-                ser = 1.0 / ser
-                meta = f"xlsx:{xlsx_path}:{sheet} col={col} (inverted) n={ser.size}"
-            else:
-                meta = f"xlsx:{xlsx_path}:{sheet} col={col} n={ser.size}"
-            inc = ser.fillna(1.0).to_numpy(dtype=float)
-            return inc, meta
-    except Exception:
-        pass
-    return None, "no CPI deflator found"
-
-def _price_levels_from_deflators(inc: np.ndarray, start_idx: int, years: int) -> np.ndarray:
-    """From monthly deflators `inc`, build per-year price levels for a window starting at `start_idx`.
-    level[0] = 1.0; for t>=1, level[t] = level[t-1] * inc[start_idx + (t-1)*12].
-    """
-    Y = int(max(0, years))
-    lev = np.ones(Y, dtype=float)
-    if inc is None or Y <= 1:
-        return lev
-    N = inc.size
-    for t in range(1, Y):
-        idx = start_idx + (t - 1) * 12
-        if 0 <= idx < N and np.isfinite(inc[idx]) and float(inc[idx]) > 0.0:
-            lev[t] = lev[t-1] * float(inc[idx])
-        else:
-            lev[t] = lev[t-1]
-    return lev
-
 def build_payment_vector(price: float, initial_down: float, apr_pct: float, years_term: int, replace_freq: int,
                          horizon_years: int, d1: float, d2_5: float, d6_10: float, d11p: float,
-                         apply_residual: bool) -> tuple[np.ndarray, int, int | None]:
-    """Return (annual_payment_vector, num_cars, last_start_year)."""
-    Y = int(max(0, horizon_years))
-    vec = np.zeros(Y, dtype=float)
-    if Y == 0:
-        return vec, 0, None
-    t = 0
-    num_cars = 0
-    last_start = None
-    down_next = float(max(0.0, initial_down))
-    while t < Y:
-        num_cars += 1
-        last_start = t
-        financed_amt = max(0.0, float(price) - down_next)
-        if financed_amt > 0 and years_term > 0:
-            ann_pmt = pmt(financed_amt, apr_pct, years_term) * 12.0
-            end_y = min(Y, t + int(years_term))
-            vec[t:end_y] += ann_pmt
-        hold = min(int(replace_freq), Y - t)
-        res = residual_value(price, hold, d1, d2_5, d6_10, d11p) if apply_residual else 0.0
-        t += int(replace_freq)
-        down_next = float(max(0.0, res))
-    return vec, num_cars, last_start
+                         apply_residual: bool,
+                         cpi_index: np.ndarray | list[float] | None = None) -> tuple[np.ndarray, int, int | None]:
+    """Return (annual_payment_vector, num_cars, last_start_year).
 
-# Variant: build_payment_vector_with_levels
-def build_payment_vector_with_levels(price: float, initial_down: float, apr_pct: float, years_term: int,
-                                     replace_freq: int, horizon_years: int, d1: float, d2_5: float,
-                                     d6_10: float, d11p: float, apply_residual: bool,
-                                     price_levels: np.ndarray | None) -> tuple[np.ndarray, int, int | None]:
-    """Same as build_payment_vector, but multiplies the base `price` by `price_levels[year]` at each purchase year."""
+    If `cpi_index` is provided, it must be a per-year *price level* index with level[0] == 1.0.
+    Each vehicle purchased at year t uses sticker price = base_price * cpi_index[t].
+    Residual values are computed from the inflated sticker price and then carried forward (nominal) as next down payment.
+    """
     Y = int(max(0, horizon_years))
     vec = np.zeros(Y, dtype=float)
     if Y == 0:
         return vec, 0, None
-    def _plv(t: int) -> float:
-        if price_levels is None or t >= len(price_levels):
+
+    def _lev(t: int) -> float:
+        if cpi_index is None:
             return 1.0
-        v = float(price_levels[t])
-        return v if v > 0 else 1.0
+        try:
+            v = float(cpi_index[t])
+            return v if v > 0 else 1.0
+        except Exception:
+            return 1.0
+
     t = 0
     num_cars = 0
     last_start = None
     down_next = float(max(0.0, initial_down))
+
     while t < Y:
         num_cars += 1
         last_start = t
-        sticker_t = float(max(0.0, price)) * _plv(t)
+
+        sticker_t = float(max(0.0, price)) * _lev(t)
         financed_amt = max(0.0, sticker_t - down_next)
+
         if financed_amt > 0 and years_term > 0:
             ann_pmt = pmt(financed_amt, apr_pct, years_term) * 12.0
             end_y = min(Y, t + int(years_term))
             vec[t:end_y] += ann_pmt
+
         hold = min(int(replace_freq), Y - t)
-        res = residual_value(sticker_t, hold, d1, d2_5, d6_10, d11p) if apply_residual else 0.0
+        res = 0.0
+        if apply_residual and hold > 0 and sticker_t > 0.0:
+            res = residual_value(sticker_t, hold, d1, d2_5, d6_10, d11p)
+
         t += int(replace_freq)
         down_next = float(max(0.0, res))
+
     return vec, num_cars, last_start
 
 # ---------------------------
@@ -423,6 +342,16 @@ with st.sidebar:
         dep_y2_5 = st.slider("Years 2–5", 0, 40, 15, key="Years 2–5")
         dep_y6_10 = st.slider("Years 6–10", 0, 30, 10, key="Years 6–10")
         dep_y11p = st.slider("Years 11+", 0, 25, 7, key="Years 11+")
+
+        # --- CPI for Auto Prices (monthly deflator) ---
+        st.markdown("**CPI for Auto Prices (monthly deflator)**")
+        cpi_csv_file = st.file_uploader("Upload increase_factors CSV (or cpi_increase CSV)", type=["csv"], key="auto_cpi_csv")
+        cpi_col_name = st.text_input("Column name for deflator", value="increase_factor", key="auto_cpi_colname")
+        cpi_paste = st.text_area(
+            "Or paste monthly increase_factor values (one per line)",
+            value="",
+            key="auto_cpi_paste"
+        )
 
     st.markdown("---")
     with st.expander("Housing Strategy", expanded=False):
@@ -728,38 +657,17 @@ if int(years) > 0:
 
     # Auto payments schedule (both buyers) and invested difference
     if has_auto:
-        # If CPI deflators are loaded, show a representative schedule using CPI‑escalated stickers
-        # Choose the earliest window start (index 0) as the nominal schedule reference
-        if 'inc_arr' in locals() and inc_arr is not None:
-            lev_sched = _price_levels_from_deflators(inc_arr, start_idx=0, years=_n_years)
-            non_vec_sched, _, _ = build_payment_vector_with_levels(
-                price=float(non_price), initial_down=float(non_down), apr_pct=float(non_rate), years_term=int(non_term),
-                replace_freq=int(non_replace), horizon_years=_n_years, d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev_sched
-            )
-            frugal_vec_sched, _, _ = build_payment_vector_with_levels(
-                price=float(frugal_price), initial_down=float(frugal_down), apr_pct=float(frugal_rate), years_term=int(frugal_term),
-                replace_freq=int(frugal_replace), horizon_years=_n_years, d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev_sched
-            )
-            contrib_sched = np.maximum(0.0, non_vec_sched - frugal_vec_sched)
-        else:
-            non_vec_sched = non_vec[:_n_years] if non_vec.size >= _n_years else np.zeros(_n_years, dtype=float)
-            frugal_vec_sched = frugal_vec[:_n_years] if frugal_vec.size >= _n_years else np.zeros(_n_years, dtype=float)
-            contrib_sched = auto_contribs[:_n_years] if auto_contribs.size >= _n_years else np.zeros(_n_years, dtype=float)
-
         auto_sched_df = pd.DataFrame({
             "Year": year_idx,
-            "Non-frugal Payment ($/yr)": non_vec_sched,
-            "Frugal Payment ($/yr)": frugal_vec_sched,
-            "Invested Difference ($/yr)": contrib_sched,
+            "Non-frugal Payment ($/yr)": non_vec[:_n_years] if non_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
+            "Frugal Payment ($/yr)": frugal_vec[:_n_years] if frugal_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
+            "Invested Difference ($/yr)": auto_contribs[:_n_years] if auto_contribs.size >= _n_years else np.zeros(_n_years, dtype=float),
         })
         auto_sched_disp = auto_sched_df.copy()
         for col in ["Non-frugal Payment ($/yr)", "Frugal Payment ($/yr)", "Invested Difference ($/yr)"]:
             auto_sched_disp[col] = auto_sched_disp[col].map(lambda v: f"${v:,.0f}")
         if section_toggle("Auto — Year-by-Year Payment Difference"):
             st.subheader("Frugal Contributions from Payment Difference in Auto Payments (Year by Year)")
-            st.caption("Schedule reflects CPI‑escalated sticker prices when CPI deflators are available; otherwise shows baseline payments.")
             st.dataframe(auto_sched_disp, use_container_width=True)
         # st.download_button("Download auto payments schedule (CSV)", data=auto_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_auto_payments_schedule_{_n_years}y.csv", mime="text/csv")
 
@@ -819,45 +727,153 @@ if int(years) > 0:
 # ==============================================
 # Opportunity Cost — Auto Payments Invested (Min & Median by Allocation)
 # ==============================================
-# Attempt to load CPI deflators for auto sticker escalation
-inc_arr, inc_meta = _load_increase_deflators()
-if inc_arr is None:
-    st.caption(f"CPI deflators: {inc_meta}")
-else:
-    st.caption(f"CPI deflators loaded → {inc_meta}")
-
 if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
     rows_auto = []
     raw_rows_auto = []
 
-    def _fv_for_windows(df_windows: pd.DataFrame) -> np.ndarray:
+    # Load deflator series (increase_factor) with robust fallbacks
+    inc_arr = np.array([], dtype=float)
+    _have_inc = False
+    _inc_meta = "no CPI provided"
+    try:
+        # 1) Prefer uploaded CSV from sidebar
+        if 'cpi_csv_file' in locals() and cpi_csv_file is not None:
+            _df_up = pd.read_csv(cpi_csv_file)
+            _col = cpi_col_name if cpi_col_name in _df_up.columns else None
+            if _col is None:
+                for c in _df_up.columns:
+                    s = str(c).strip().lower().replace(" ", "")
+                    if "increase" in s and "factor" in s:
+                        _col = c
+                        break
+            if _col is None:
+                raise KeyError("Uploaded CSV missing 'increase_factor' column")
+            inc_arr = pd.to_numeric(_df_up[_col], errors="coerce").astype(float).to_numpy()
+            _have_inc = inc_arr.size > 0
+            _inc_meta = f"uploaded_csv col={_col} n={inc_arr.size}"
+        # 2) Or use pasted values (one per line)
+        elif 'cpi_paste' in locals() and isinstance(cpi_paste, str) and cpi_paste.strip():
+            vals = []
+            for line in cpi_paste.strip().splitlines():
+                try:
+                    v = float(str(line).strip())
+                    vals.append(v)
+                except Exception:
+                    continue
+            inc_arr = np.array(vals, dtype=float)
+            _have_inc = inc_arr.size > 0
+            _inc_meta = f"pasted n={inc_arr.size}"
+        else:
+            # 3) Fallback to workbook or CSV on disk (as before)
+            import pandas as _pd
+            _inc_sheet = "increase_factors"
+            _col_name = "increase_factor"
+            _here = os.path.dirname(__file__) if '__file__' in globals() else os.getcwd()
+            _candidates = [os.path.join(_here, "cpi_factors.xlsx"), "cpi_factors.xlsx"]
+            _xls_path = None
+            for _p in _candidates:
+                try:
+                    if os.path.exists(_p):
+                        _xls_path = _p
+                        break
+                except Exception:
+                    pass
+            if _xls_path is not None:
+                try:
+                    _df_inc = _pd.read_excel(_xls_path, sheet_name=_inc_sheet)
+                except Exception:
+                    _inc_sheet = "cpi_increase"
+                    _df_inc = _pd.read_excel(_xls_path, sheet_name=_inc_sheet)
+                if _col_name not in _df_inc.columns:
+                    for c in list(_df_inc.columns):
+                        s = str(c).strip().lower().replace(" ", "")
+                        if "increase" in s and "factor" in s:
+                            _col_name = c
+                            break
+                inc_series = _pd.to_numeric(_df_inc[_col_name], errors="coerce")
+                inc_arr = inc_series.astype(float).to_numpy()
+                _have_inc = inc_arr.size > 0
+                _inc_meta = f"excel path={_xls_path} sheet={_inc_sheet} col={_col_name} n={inc_arr.size}"
+            if not _have_inc:
+                # Try CSV files on disk
+                _csv_candidates = [
+                    os.path.join(_here, "increase_factors.csv"),
+                    os.path.join(_here, "cpi_increase.csv"),
+                    "increase_factors.csv",
+                    "cpi_increase.csv",
+                ]
+                for _p in _csv_candidates:
+                    try:
+                        if os.path.exists(_p):
+                            _df_inc_csv = _pd.read_csv(_p)
+                            _col_name = cpi_col_name if ('cpi_col_name' in locals() and cpi_col_name in _df_inc_csv.columns) else None
+                            if _col_name is None:
+                                for c in list(_df_inc_csv.columns):
+                                    s = str(c).strip().lower().replace(" ", "")
+                                    if "increase" in s and "factor" in s:
+                                        _col_name = c
+                                        break
+                            inc_series = _pd.to_numeric(_df_inc_csv[_col_name], errors="coerce")
+                            inc_arr = inc_series.astype(float).to_numpy()
+                            _have_inc = inc_arr.size > 0
+                            _inc_meta = f"csv path={_p} col={_col_name} n={inc_arr.size}"
+                            break
+                    except Exception:
+                        continue
+    except Exception as _e_all:
+        _have_inc = False
+        _inc_meta = f"CPI load failed: {_e_all}"
+
+    def _price_levels_for_window(start_idx: int, yrs: int) -> np.ndarray:
+        lev = np.ones(int(yrs), dtype=float)
+        if not _have_inc:
+            return lev
+        for t in range(1, int(yrs)):
+            idx = start_idx + (t - 1) * 12
+            if 0 <= idx < inc_arr.size:
+                val = inc_arr[idx]
+                if np.isfinite(val) and float(val) > 0.0:
+                    # deflator -> price level
+                    lev[t] = lev[t - 1] / float(val)
+                else:
+                    lev[t] = lev[t - 1]
+            else:
+                lev[t] = lev[t - 1]
+        return lev
+
+    def _fv_series_for(df_windows: pd.DataFrame) -> np.ndarray:
         if df_windows.empty:
             return np.array([], dtype=float)
         fvs = []
         for start_idx, window in zip(df_windows["start_index"].values.astype(int), df_windows["factors"].values):
-            # Yearly price levels from monthly deflators (if available)
-            lev = _price_levels_from_deflators(inc_arr, int(start_idx), int(years)) if inc_arr is not None else np.ones(int(years), dtype=float)
-            # Build spender/frugal annual payment vectors with sticker escalation at purchase years
-            vec_non_w, _, _ = build_payment_vector_with_levels(
+            levs = _price_levels_for_window(start_idx, years)
+            # Debug: flag if CPI levels are flat
+            if np.allclose(levs, 1.0):
+                st.caption(f"[debug] CPI levels flat for window start {start_idx} • {_inc_meta}")
+            vec_non, _, _ = build_payment_vector(
                 price=float(non_price), initial_down=float(non_down), apr_pct=float(non_rate), years_term=int(non_term),
-                replace_freq=int(non_replace), horizon_years=int(years), d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev
+                replace_freq=int(non_replace), horizon_years=int(years),
+                d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
+                apply_residual=bool(apply_residual_dp),
+                cpi_index=levs
             )
-            vec_fr_w,  _, _ = build_payment_vector_with_levels(
+            vec_fr,  _, _ = build_payment_vector(
                 price=float(frugal_price), initial_down=float(frugal_down), apr_pct=float(frugal_rate), years_term=int(frugal_term),
-                replace_freq=int(frugal_replace), horizon_years=int(years), d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev
+                replace_freq=int(frugal_replace), horizon_years=int(years),
+                d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
+                apply_residual=bool(apply_residual_dp),
+                cpi_index=levs
             )
-            contrib_w = np.maximum(0.0, vec_non_w - vec_fr_w)
-            fvs.append(variable_annuity_fv_from_window(window, contrib_w, timing="end"))
+            contrib = np.maximum(0.0, vec_non - vec_fr)
+            fvs.append(variable_annuity_fv_from_window(window, contrib, timing="end"))
         return np.asarray(fvs, dtype=float)
 
     for alloc in common_allocs:
         sims_g = build_windows(df_glob, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
         sims_s = build_windows(df_spx,  alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_spx)
 
-        fv_g = _fv_for_windows(sims_g)
-        fv_s = _fv_for_windows(sims_s)
+        fv_g = _fv_series_for(sims_g)
+        fv_s = _fv_series_for(sims_s)
 
         g_min = float(np.nanmin(fv_g)) if fv_g.size else np.nan
         g_med = float(np.nanmedian(fv_g)) if fv_g.size else np.nan
@@ -886,18 +902,17 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
         "Global Median Ending Value",
         "SPX Median Ending Value",
     ]]
+    st.caption(f"CPI source for autos → {_inc_meta}")
     if section_toggle("Auto Payments Invested — Min & Median by Allocation"):
         st.subheader("Opportunity Cost — Auto Payments Invested (Min & Median by Allocation)")
-        st.caption("Auto sticker prices are escalated by monthly deflators every 12 months (start, +12, +24, +36, …) per historical window; the payment difference is invested using real returns.")
+        st.caption("Auto sticker prices are escalated by CPI (increase_factor) at each purchase year for every historical window; the payment difference is invested using real returns.")
         st.dataframe(result_auto_df, use_container_width=True)
-
-        # --- Audit: inspect one historical window (Auto CPI + Payments) ---
+        # --- Audit: inspect one window ---
         if section_toggle("Audit — Auto CPI (per window)"):
             try:
-                # Select allocation to build windows for audit
+                # Build windows for a selectable allocation
                 alloc_opts = common_allocs
                 alloc_sel = st.selectbox("Allocation for audit", options=alloc_opts, index=0, key="auto_audit_alloc")
-
                 sims_a = build_windows(df_glob, alloc_sel, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
                 if sims_a.empty:
                     st.info("No historical windows available for audit.")
@@ -906,19 +921,34 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                     w_idx = st.slider("Window index (0 = earliest start)", 0, max_i, 0, key="auto_audit_window")
                     start_idx = int(sims_a.iloc[w_idx]["start_index"])  # begin-month index
 
-                    # Build yearly price levels for this window from monthly deflators (if available)
-                    lev = _price_levels_from_deflators(inc_arr, start_idx, int(years)) if inc_arr is not None else np.ones(int(years), dtype=float)
+                    # Recreate price levels for this window
+                    lev = np.ones(int(years), dtype=float)
+                    if _have_inc:
+                        for t in range(1, int(years)):
+                            idx = start_idx + (t - 1) * 12
+                            if 0 <= idx < inc_arr.size:
+                                val = inc_arr[idx]
+                                if np.isfinite(val) and float(val) > 0.0:
+                                    lev[t] = lev[t - 1] / float(val)
+                                else:
+                                    lev[t] = lev[t - 1]
+                            else:
+                                lev[t] = lev[t - 1]
 
-                    # Build nominal payment vectors for this window (spender/frugal)
-                    vec_non_a, _, _ = build_payment_vector_with_levels(
+                    # Build nominal payment vectors for this window
+                    vec_non_a, _, _ = build_payment_vector(
                         price=float(non_price), initial_down=float(non_down), apr_pct=float(non_rate), years_term=int(non_term),
-                        replace_freq=int(non_replace), horizon_years=int(years), d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                        apply_residual=bool(apply_residual_dp), price_levels=lev
+                        replace_freq=int(non_replace), horizon_years=int(years),
+                        d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
+                        apply_residual=bool(apply_residual_dp),
+                        cpi_index=lev
                     )
-                    vec_fr_a,  _, _ = build_payment_vector_with_levels(
+                    vec_fr_a, _, _ = build_payment_vector(
                         price=float(frugal_price), initial_down=float(frugal_down), apr_pct=float(frugal_rate), years_term=int(frugal_term),
-                        replace_freq=int(frugal_replace), horizon_years=int(years), d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                        apply_residual=bool(apply_residual_dp), price_levels=lev
+                        replace_freq=int(frugal_replace), horizon_years=int(years),
+                        d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
+                        apply_residual=bool(apply_residual_dp),
+                        cpi_index=lev
                     )
                     contrib_a = np.maximum(0.0, vec_non_a - vec_fr_a)
 
@@ -938,28 +968,6 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                         "Frugal Payment ($/yr)": vec_fr_a,
                         "Invested Difference ($/yr)": contrib_a,
                     })
-
-                    # Build a compact table of purchase events and sticker prices
-                    non_events = pd.DataFrame({
-                        "Buyer": "Non-frugal",
-                        "Year": yrs[non_buy],
-                        "Sticker (inflated)": non_sticker[non_buy],
-                    })
-                    fr_events = pd.DataFrame({
-                        "Buyer": "Frugal",
-                        "Year": yrs[fr_buy],
-                        "Sticker (inflated)": fr_sticker[fr_buy],
-                    })
-                    events_df = pd.concat([non_events, fr_events], ignore_index=True)
-                    events_df = events_df.sort_values(["Year", "Buyer"]).reset_index(drop=True)
-
-                    # Display purchase events first
-                    events_disp = events_df.copy()
-                    events_disp["Sticker (inflated)"] = events_disp["Sticker (inflated)"].map(lambda v: f"${v:,.0f}")
-                    st.subheader("Purchase Events — Sticker Prices at Each Replacement Year")
-                    st.caption("This uses the selected window's CPI deflators: start, +12, +24, …")
-                    st.dataframe(events_disp, use_container_width=True)
-
                     disp = audit_df.copy()
                     for c in [
                         "Non-frugal Sticker (inflated)", "Frugal Sticker (inflated)",
@@ -970,7 +978,6 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                     disp["CPI level"] = disp["CPI level"].map(lambda v: f"{float(v):.6f}")
 
                     st.dataframe(disp, use_container_width=True)
-                    st.caption("Use the **Window index** slider above to choose the starting period; tables update to that start.")
             except Exception as _e:
                 st.info(f"Audit unavailable: {_e}")
 
@@ -1465,22 +1472,12 @@ try:
 except Exception:
     pass
 
+#
 # ---------------------------
 # Plan Summary (Plain Language)
 # ---------------------------
 try:
     with top_box:
-        # Hover note explaining how summary values are derived (CSS tooltip for reliable hover)
-        import html as _html
-        _hover_text = (
-            "The values outputted below assume you invest the difference in spending amounts in either the Global Strategy or SP500 Index Strategy that represented the highest ending value at the beginning of retirement.\n\n"
-            "At retirement, we assume a Global or SP500 strategy that is 60% Stocks / 40% Bonds and utilizes Monte Carlo simulation to adjust spending.\n\n"
-            "We run the results against historical returns for both Global and SP500 portfolios (60/40 allocation). To determine the annual spending, we use the Median average annual spending result to get the spending percentage of a portfolio by multiplying that withdrawal percentage by the Median Ending Value from the investment account where the spending differences are invested.\n\n"
-            "For example, if the Median Global ending value is $100,000 and the retirement period is 30 years, the withdrawal rate that represents the median average (real) annual spending withdrawal is 8.6%. Therefore, historically speaking, the median average annual spending in a global portfolio of 60% stocks and 40% bonds would have been $8,600 per year, or $258,000 in lifetime (real) spending.\n\n"
-            "To learn more about the Monte Carlo simulator, see my Monte Carlo simulation app 'Do Monte Carlo guardrails work?' on my website."
-        )
-        _hover_html = _html.escape(_hover_text).replace("\n\n", "<br/><br/>").replace("\n", "<br/>")
-
         def _fmt(x):
             try:
                 return f"${float(x):,.0f}"
@@ -1488,363 +1485,26 @@ try:
                 return str(x)
 
         summary_lines = []
-        # Horizon
         summary_lines.append(f"- **Time Horizon:** {int(years)} years to retirement; {int(retirement_years)} years in retirement.")
-
-        # Lump Sum
         if has_lump:
             summary_lines.append(f"- **Lump Sum:** You compared spending {_fmt(thinking_spend)} vs {_fmt(whatif_spend)}; the difference {_fmt(lump_diff)} is invested across all historical windows.")
-
-        # Annual Habits
         if has_habits:
             total_habits = sum(float(c) for c in annual_contribs)
             summary_lines.append(f"- **Annual Habits:** You invest about {_fmt(total_habits)} per year from selected habits.")
-
-        # Auto
         if has_auto:
             summary_lines.append(
-                f"- **Auto Strategy:** Frugal car {_fmt(frugal_price)} (replace every {int(frugal_replace)}y)"
-                f" vs non‑frugal {_fmt(non_price)} (replace every {int(non_replace)}y)."
-                f" Loans at {frugal_rate:.2f}%/{int(frugal_term)}y (frugal) and {non_rate:.2f}%/{int(non_term)}y (non‑frugal)."
-                f" Residual values are used as next down payments."
+                f"- **Auto:** Frugal {_fmt(frugal_price)} every {int(frugal_replace)}y vs Non-frugal {_fmt(non_price)} every {int(non_replace)}y; "
+                f"loans {frugal_rate:.2f}%/{int(frugal_term)}y and {non_rate:.2f}%/{int(non_term)}y; residuals used as next down payment."
             )
-
-        # Housing
         if has_housing:
-            # Determine down payment description (percent vs override)
             dp_desc_sp = f"{house_down_pct}%" if float(house_spender_down_amt) <= 0 else _fmt(house_spender_down_amt)
             dp_desc_fr = f"{house_down_pct}%" if float(house_frugal_down_amt)  <= 0 else _fmt(house_frugal_down_amt)
             summary_lines.append(
-                f"- **Housing Strategy:** Spender home {_fmt(house_spender_price)} (DP {dp_desc_sp})"
-                f" vs frugal {_fmt(house_frugal_price)} (DP {dp_desc_fr}),"
-                f" {house_apr:.2f}% APR, {int(house_term)}‑year mortgage."
-                f" Annual property‑tax difference at {house_tax_rate:.1f}% is added to invested differences."
+                f"- **Housing:** Spender {_fmt(house_spender_price)} (DP {dp_desc_sp}) vs Frugal {_fmt(house_frugal_price)} (DP {dp_desc_fr}); "
+                f"{house_apr:.2f}% APR, {int(house_term)}-year mortgage; property-tax difference invested each year."
             )
-            if dp_diff > 0:
-                summary_lines.append(f"  - **Down Payment Difference:** {_fmt(dp_diff)} invested at the start (beginning‑of‑year).")
 
-        # Grand Total snapshot (if available)
-        try:
-            if 'grand_df' in locals() and isinstance(grand_df, pd.DataFrame) and not grand_df.empty:
-                for _, r in grand_df.iterrows():
-                    p = str(r.get("Portfolio","")).strip()
-                    yrs_int = int(r.get("Years", retirement_years))
-                    # Annual
-                    if "Annual Retirement Income — Grand Total" in grand_df.columns:
-                        ann_val = float(r.get("Annual Retirement Income — Grand Total", 0.0) or 0.0)
-                    else:
-                        ann_cols = [c for c in grand_df.columns if c.startswith("Annual Retirement Income — ") and c != "Annual Retirement Income — Grand Total"]
-                        ann_val = float(np.nansum([float(r.get(c, 0.0) or 0.0) for c in ann_cols])) if ann_cols else 0.0
-                    # Total
-                    if "Total — Grand Total" in grand_df.columns:
-                        tot_val = float(r.get("Total — Grand Total", 0.0) or 0.0)
-                    else:
-                        tot_cols = [c for c in grand_df.columns if c.startswith("Total — ") and c != "Total — Grand Total"]
-                        if tot_cols:
-                            tot_val = float(np.nansum([float(r.get(c, 0.0) or 0.0) for c in tot_cols]))
-                        else:
-                            tot_val = float(ann_val) * float(yrs_int)
-                    p_lower = p.lower()
-                    if p_lower == "global":
-                        summary_lines.append(
-                            f"By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                        )
-                    elif p_lower in ("spx", "sp500", "s&p 500", "s&p500"):
-                        summary_lines.append(
-                            f"By following a more frugal approach to spending decisions, the invested difference (historically) in an SP500 index fund would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                        )
-                    else:
-                        summary_lines.append(
-                            f"For {p}, the invested difference (historically) would have produced an annual retirement income of {_fmt(ann_val)} and a retirement lifetime income of {_fmt(tot_val)}."
-                        )
-        except Exception:
-            pass
-
-        # Render as plain text to avoid markdown/HTML wrapping issues
-        import re as _re
-        summary_plain = "\n".join([_re.sub(r"\*", "", line) for line in summary_lines])
-        # Insert an extra blank line between lines starting with "By following a more frugal approach"
-        summary_plain = summary_plain.replace(
-            "By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio",
-            "By following a more frugal approach to spending decisions, the invested difference (historically) in a global equity portfolio\n"
-        )
-
-        # ===== Four summary containers =====
-        def _safe_total_from_grand(_df, port_name: str, yrs_default: int) -> float | None:
-            try:
-                if isinstance(_df, pd.DataFrame) and not _df.empty:
-                    sel = _df.loc[_df["Portfolio"].astype(str).str.lower() == port_name.lower()]
-                    if sel.empty:
-                        return None
-                    if "Total — Grand Total" in _df.columns:
-                        v = float(sel["Total — Grand Total"].iloc[0])
-                        return v
-                    # Fallback: sum any available "Total — *" columns; else Ann * Years
-                    tot_cols = [c for c in _df.columns if c.startswith("Total — ")]
-                    if tot_cols:
-                        return float(sel[tot_cols].fillna(0).astype(float).sum(axis=1).iloc[0])
-                    ann_col = "Annual Retirement Income — Grand Total"
-                    if ann_col in _df.columns:
-                        ann_v = float(sel[ann_col].iloc[0])
-                        yrs_v = float(sel.get("Years", pd.Series([yrs_default])).iloc[0])
-                        return ann_v * yrs_v
-            except Exception:
-                return None
-            return None
-
-        # Prefer grand totals if present; otherwise fall back to lump-sum medians
-        total_global = _safe_total_from_grand(locals().get("grand_df"), "Global", int(retirement_years))
-        total_spx    = _safe_total_from_grand(locals().get("grand_df"), "SPX", int(retirement_years))
-
-        if (total_global is None or not np.isfinite(total_global)) and "lump_df" in locals() and isinstance(lump_df, pd.DataFrame) and not lump_df.empty:
-            try:
-                _g_row = lump_df.loc[lump_df["Portfolio"].astype(str).str.lower() == "global"]
-                if not _g_row.empty:
-                    total_global = float(_g_row["Total Median Retirement Income"].iloc[0])
-            except Exception:
-                pass
-            try:
-                _s_row = lump_df.loc[lump_df["Portfolio"].astype(str).str.lower().isin(["spx","sp500","s&p 500","s&p500"]) ]
-                if not _s_row.empty:
-                    total_spx = float(_s_row["Total Median Retirement Income"].iloc[0])
-            except Exception:
-                pass
-
-
-        spend_this_val = whatif_spend  # frugal value
-        not_this_val   = thinking_spend # non-frugal value
-
-        # --- Card styles for summary boxes ---
-        st.markdown(
-            """
-            <style>
-              .info-card { 
-                background: #0b5ed7; /* bootstrap primary-ish */
-                color: #ffffff;
-                border: 1px solid #084298; 
-                border-radius: 8px; 
-                padding: 12px 14px; 
-                text-align: center; /* center all text */
-              }
-              .info-card h4 { 
-                margin: 0 0 6px 0; 
-                font-weight: 700; 
-              }
-              .info-card .value { 
-                font-size: 1.25rem; 
-                font-weight: 700; 
-                margin-top: 2px; 
-              }
-              .info-card .sub { 
-                opacity: 0.95; 
-                font-size: 0.9rem; 
-                margin-top: 6px; 
-              }      .info-card.min {
-        background: #198754; /* Bootstrap green */
-        color: #ffffff;
-        border: 1px solid #145c32;
-      }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # --- Summary cards (TOP ROW): Median Ending Value Totals (Global/SP500) ---
-        # Pull from grand_ending_df if available
-        def _pull_med_total(df_: pd.DataFrame | None, port: str) -> float | None:
-            try:
-                if isinstance(df_, pd.DataFrame) and not df_.empty:
-                    row = df_.loc[df_["Portfolio"].astype(str).str.lower() == port.lower()]
-                    if not row.empty:
-                        return float(row["Grand Total — Median Ending Value"].iloc[0])
-            except Exception:
-                return None
-            return None
-
-        med_total_global = _pull_med_total(locals().get("grand_ending_df"), "Global")
-        med_total_spx    = _pull_med_total(locals().get("grand_ending_df"), "SPX")
-
-        r1c1, r1c2, r1c3 = st.columns(3)
-        with r1c1:
-            st.markdown(
-                f"""
-                <div class='info-card'>
-                  <h4>Median Ending Value Total</h4>
-                  <div class='value'>{_fmt(med_total_global if (med_total_global is not None and np.isfinite(med_total_global)) else 0)}</div>
-                  <div class='sub'>Global Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r1c2:
-            st.markdown(
-                f"""
-                <div class='info-card'>
-                  <h4>Median Ending Value Total</h4>
-                  <div class='value'>{_fmt(med_total_spx if (med_total_spx is not None and np.isfinite(med_total_spx)) else 0)}</div>
-                  <div class='sub'>SP500 Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r1c3:
-            st.write("")
-
-        # small spacer between the two card rows
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-
-        # --- Summary cards: Lifetime Retirement Income only (Global/SP500) ---
-        r2c1, r2c2, r2c3 = st.columns(3)
-        with r2c1:
-            st.markdown(
-                f"""
-                <div class='info-card'>
-                  <h4>Lifetime Retirement Income</h4>
-                  <div class='value'>{_fmt(total_global if (total_global is not None and np.isfinite(total_global)) else 0)}</div>
-                  <div class='sub'>Global Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r2c2:
-            st.markdown(
-                f"""
-                <div class='info-card'>
-                  <h4>Lifetime Retirement Income</h4>
-                  <div class='value'>{_fmt(total_spx if (total_spx is not None and np.isfinite(total_spx)) else 0)}</div>
-                  <div class='sub'>SP500 Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r2c3:
-            st.write("")
-
-        # small spacer between the median and minimum card groups
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-
-        # --- Summary cards (MIN ROWS): Minimum Ending Value Totals (Global/SP500) ---
-        def _pull_min_total(df_: pd.DataFrame | None, port: str) -> float | None:
-            try:
-                if isinstance(df_, pd.DataFrame) and not df_.empty:
-                    row = df_.loc[df_["Portfolio"].astype(str).str.lower() == port.lower()]
-                    if not row.empty:
-                        return float(row["Grand Total — Minimum Ending Value"].iloc[0])
-            except Exception:
-                return None
-            return None
-
-        min_total_global = _pull_min_total(locals().get("grand_ending_df"), "Global")
-        min_total_spx    = _pull_min_total(locals().get("grand_ending_df"), "SPX")
-
-        r3c1, r3c2, r3c3 = st.columns(3)
-        with r3c1:
-            st.markdown(
-                f"""
-                <div class='info-card min'>
-                  <h4>Minimum Ending Value Total</h4>
-                  <div class='value'>{_fmt(min_total_global if (min_total_global is not None and np.isfinite(min_total_global)) else 0)}</div>
-                  <div class='sub'>Global Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r3c2:
-            st.markdown(
-                f"""
-                <div class='info-card min'>
-                  <h4>Minimum Ending Value Total</h4>
-                  <div class='value'>{_fmt(min_total_spx if (min_total_spx is not None and np.isfinite(min_total_spx)) else 0)}</div>
-                  <div class='sub'>SP500 Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r3c3:
-            st.write("")
-
-        # small spacer between the two minimum rows
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-
-        # --- Summary cards (MIN ROWS): Minimum Lifetime Retirement Income (Global/SP500) ---
-        # Compute minimum annual from min withdrawal × min ending value; treat >1.0 as $/yr
-        _yrs_int = int(retirement_years)
-        def _lookup_min_withdrawal_local(df_w: pd.DataFrame | None, yrs: int):
-            if df_w is None:
-                return None
-            try:
-                return float(df_w.loc[df_w["Years"] == yrs, "Min"].iloc[0])
-            except Exception:
-                return None
-        _min_wr_g = _lookup_min_withdrawal_local(locals().get("df_withdrawals"), _yrs_int)
-        _min_wr_s = _lookup_min_withdrawal_local(locals().get("df_withdrawals_spx"), _yrs_int)
-        def _annual_from_rate_local(ev: float | None, wr: float | None) -> float | None:
-            try:
-                if ev is None or wr is None or not np.isfinite(ev) or not np.isfinite(wr):
-                    return None
-                return float(wr) * float(ev) if float(wr) <= 1.0 else float(wr)
-            except Exception:
-                return None
-        min_ann_g = _annual_from_rate_local(min_total_global, _min_wr_g)
-        min_ann_s = _annual_from_rate_local(min_total_spx,    _min_wr_s)
-        min_life_g = (min_ann_g * _yrs_int) if (min_ann_g is not None and np.isfinite(min_ann_g)) else None
-        min_life_s = (min_ann_s * _yrs_int) if (min_ann_s is not None and np.isfinite(min_ann_s)) else None
-
-        r4c1, r4c2, r4c3 = st.columns(3)
-        with r4c1:
-            st.markdown(
-                f"""
-                <div class='info-card min'>
-                  <h4>Minimum Lifetime Retirement Income</h4>
-                  <div class='value'>{_fmt(min_life_g if (min_life_g is not None and np.isfinite(min_life_g)) else 0)}</div>
-                  <div class='sub'>Global Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r4c2:
-            st.markdown(
-                f"""
-                <div class='info-card min'>
-                  <h4>Minimum Lifetime Retirement Income</h4>
-                  <div class='value'>{_fmt(min_life_s if (min_life_s is not None and np.isfinite(min_life_s)) else 0)}</div>
-                  <div class='sub'>SP500 Strategy</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with r4c3:
-            st.write("")
-
-        # ---------------------- HOVER, HEADER, SUMMARY, CAPTION MOVED HERE ----------------------
-        # Hover just above Plan Summary
-        st.markdown(
-            """
-            <style>
-            .ttx { position: relative; display: inline-block; cursor: help; }
-            .ttx .ttx-box {
-                visibility: hidden; opacity: 0; transition: opacity 0.15s ease-in;
-                position: absolute; z-index: 1000; top: 1.6rem; left: 0;
-                width: min(680px, 90vw); padding: 10px 12px; border-radius: 6px;
-                background: #111; color: #fff; text-align: left; box-shadow: 0 6px 16px rgba(0,0,0,0.35);
-                line-height: 1.45; font-size: 0.9rem;
-            }
-            .ttx:hover .ttx-box { visibility: visible; opacity: 1; }
-            </style>
-            <div style='margin: 0.5rem 0 0.25rem 0;'>
-              <span class='ttx'>ℹ️ <u>How to interpret these values (hover)</u>
-                <div class='ttx-box'>%s</div>
-              </span>
-            </div>
-            """ % _hover_html,
-            unsafe_allow_html=True
-        )
-
-        # Plan Summary header and text (now below hover)
-        st.subheader("Plan Summary (Plain Language)")
-        st.text(summary_plain)
-
-        # Small footnote on assumptions (now below Plan Summary)
-        st.caption("Assumptions: annual contributions invested at end-of-year; down-payment differences at beginning-of-year; results shown for Global (20 bps) and S&P 500 (5 bps) portfolios using historical windows.")
+        st.subheader("Summary")
+        st.markdown("\n".join(summary_lines))
 except Exception:
     pass

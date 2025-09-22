@@ -728,38 +728,17 @@ if int(years) > 0:
 
     # Auto payments schedule (both buyers) and invested difference
     if has_auto:
-        # If CPI deflators are loaded, show a representative schedule using CPI‑escalated stickers
-        # Choose the earliest window start (index 0) as the nominal schedule reference
-        if 'inc_arr' in locals() and inc_arr is not None:
-            lev_sched = _price_levels_from_deflators(inc_arr, start_idx=0, years=_n_years)
-            non_vec_sched, _, _ = build_payment_vector_with_levels(
-                price=float(non_price), initial_down=float(non_down), apr_pct=float(non_rate), years_term=int(non_term),
-                replace_freq=int(non_replace), horizon_years=_n_years, d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev_sched
-            )
-            frugal_vec_sched, _, _ = build_payment_vector_with_levels(
-                price=float(frugal_price), initial_down=float(frugal_down), apr_pct=float(frugal_rate), years_term=int(frugal_term),
-                replace_freq=int(frugal_replace), horizon_years=_n_years, d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev_sched
-            )
-            contrib_sched = np.maximum(0.0, non_vec_sched - frugal_vec_sched)
-        else:
-            non_vec_sched = non_vec[:_n_years] if non_vec.size >= _n_years else np.zeros(_n_years, dtype=float)
-            frugal_vec_sched = frugal_vec[:_n_years] if frugal_vec.size >= _n_years else np.zeros(_n_years, dtype=float)
-            contrib_sched = auto_contribs[:_n_years] if auto_contribs.size >= _n_years else np.zeros(_n_years, dtype=float)
-
         auto_sched_df = pd.DataFrame({
             "Year": year_idx,
-            "Non-frugal Payment ($/yr)": non_vec_sched,
-            "Frugal Payment ($/yr)": frugal_vec_sched,
-            "Invested Difference ($/yr)": contrib_sched,
+            "Non-frugal Payment ($/yr)": non_vec[:_n_years] if non_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
+            "Frugal Payment ($/yr)": frugal_vec[:_n_years] if frugal_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
+            "Invested Difference ($/yr)": auto_contribs[:_n_years] if auto_contribs.size >= _n_years else np.zeros(_n_years, dtype=float),
         })
         auto_sched_disp = auto_sched_df.copy()
         for col in ["Non-frugal Payment ($/yr)", "Frugal Payment ($/yr)", "Invested Difference ($/yr)"]:
             auto_sched_disp[col] = auto_sched_disp[col].map(lambda v: f"${v:,.0f}")
         if section_toggle("Auto — Year-by-Year Payment Difference"):
             st.subheader("Frugal Contributions from Payment Difference in Auto Payments (Year by Year)")
-            st.caption("Schedule reflects CPI‑escalated sticker prices when CPI deflators are available; otherwise shows baseline payments.")
             st.dataframe(auto_sched_disp, use_container_width=True)
         # st.download_button("Download auto payments schedule (CSV)", data=auto_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_auto_payments_schedule_{_n_years}y.csv", mime="text/csv")
 
@@ -938,28 +917,6 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                         "Frugal Payment ($/yr)": vec_fr_a,
                         "Invested Difference ($/yr)": contrib_a,
                     })
-
-                    # Build a compact table of purchase events and sticker prices
-                    non_events = pd.DataFrame({
-                        "Buyer": "Non-frugal",
-                        "Year": yrs[non_buy],
-                        "Sticker (inflated)": non_sticker[non_buy],
-                    })
-                    fr_events = pd.DataFrame({
-                        "Buyer": "Frugal",
-                        "Year": yrs[fr_buy],
-                        "Sticker (inflated)": fr_sticker[fr_buy],
-                    })
-                    events_df = pd.concat([non_events, fr_events], ignore_index=True)
-                    events_df = events_df.sort_values(["Year", "Buyer"]).reset_index(drop=True)
-
-                    # Display purchase events first
-                    events_disp = events_df.copy()
-                    events_disp["Sticker (inflated)"] = events_disp["Sticker (inflated)"].map(lambda v: f"${v:,.0f}")
-                    st.subheader("Purchase Events — Sticker Prices at Each Replacement Year")
-                    st.caption("This uses the selected window's CPI deflators: start, +12, +24, …")
-                    st.dataframe(events_disp, use_container_width=True)
-
                     disp = audit_df.copy()
                     for c in [
                         "Non-frugal Sticker (inflated)", "Frugal Sticker (inflated)",
@@ -970,7 +927,6 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                     disp["CPI level"] = disp["CPI level"].map(lambda v: f"{float(v):.6f}")
 
                     st.dataframe(disp, use_container_width=True)
-                    st.caption("Use the **Window index** slider above to choose the starting period; tables update to that start.")
             except Exception as _e:
                 st.info(f"Audit unavailable: {_e}")
 

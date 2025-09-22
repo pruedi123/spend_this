@@ -938,28 +938,6 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                         "Frugal Payment ($/yr)": vec_fr_a,
                         "Invested Difference ($/yr)": contrib_a,
                     })
-
-                    # Build a compact table of purchase events and sticker prices
-                    non_events = pd.DataFrame({
-                        "Buyer": "Non-frugal",
-                        "Year": yrs[non_buy],
-                        "Sticker (inflated)": non_sticker[non_buy],
-                    })
-                    fr_events = pd.DataFrame({
-                        "Buyer": "Frugal",
-                        "Year": yrs[fr_buy],
-                        "Sticker (inflated)": fr_sticker[fr_buy],
-                    })
-                    events_df = pd.concat([non_events, fr_events], ignore_index=True)
-                    events_df = events_df.sort_values(["Year", "Buyer"]).reset_index(drop=True)
-
-                    # Display purchase events first
-                    events_disp = events_df.copy()
-                    events_disp["Sticker (inflated)"] = events_disp["Sticker (inflated)"].map(lambda v: f"${v:,.0f}")
-                    st.subheader("Purchase Events — Sticker Prices at Each Replacement Year")
-                    st.caption("This uses the selected window's CPI deflators: start, +12, +24, …")
-                    st.dataframe(events_disp, use_container_width=True)
-
                     disp = audit_df.copy()
                     for c in [
                         "Non-frugal Sticker (inflated)", "Frugal Sticker (inflated)",
@@ -970,7 +948,6 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                     disp["CPI level"] = disp["CPI level"].map(lambda v: f"{float(v):.6f}")
 
                     st.dataframe(disp, use_container_width=True)
-                    st.caption("Use the **Window index** slider above to choose the starting period; tables update to that start.")
             except Exception as _e:
                 st.info(f"Audit unavailable: {_e}")
 

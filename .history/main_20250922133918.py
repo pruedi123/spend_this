@@ -149,137 +149,55 @@ def variable_annuity_fv_from_window(window: np.ndarray, contrib_series: np.ndarr
     weights = suffix_including if (timing == "begin") else suffix_excluding
     return float(np.sum(c * weights))
 
-# ---------------------------
-# Helpers: CPI deflators (auto price levels)
-# ---------------------------
-
-def _load_increase_deflators() -> tuple[np.ndarray | None, str]:
-    """Try to load monthly increase_factor deflators.
-    Priority: CSV next to app (increase_factors.csv -> cpi_increase.csv),
-    then XLSX 'cpi_factors.xlsx' (sheet increase_factors -> cpi_increase).
-    Returns (inc_array_or_None, meta_string).
-    """
-    meta = ""
-    # 1) CSVs first (no openpyxl dependency)
-    for name in ("increase_factors.csv", "cpi_increase.csv"):
-        try:
-            df = pd.read_csv(name)
-            col = "increase_factor" if "increase_factor" in df.columns else None
-            if col is None:
-                for c in df.columns:
-                    s = str(c).strip().lower().replace(" ", "")
-                    if "increase" in s and "factor" in s:
-                        col = c; break
-            if col is None:
-                continue
-            inc = pd.to_numeric(df[col], errors="coerce").fillna(1.0).to_numpy(dtype=float)
-            return inc, f"csv:{name} col={col} n={inc.size}"
-        except Exception:
-            pass
-    # 2) XLSX as a fallback (requires openpyxl)
-    try:
-        xlsx_path = "cpi_factors.xlsx"
-        for sheet in ("increase_factors", "cpi_increase"):
-            try:
-                df = pd.read_excel(xlsx_path, sheet_name=sheet)
-            except Exception:
-                continue
-            col = "increase_factor" if "increase_factor" in df.columns else None
-            if col is None:
-                for c in df.columns:
-                    s = str(c).strip().lower().replace(" ", "")
-                    if "increase" in s and "factor" in s:
-                        col = c; break
-            if col is None:
-                continue
-            ser = pd.to_numeric(df[col], errors="coerce")
-            # If it looks like a >1 growth multiplier (e.g., 12 mo factor), invert to get deflator
-            if ser.dropna().median() > 1.05:
-                ser = 1.0 / ser
-                meta = f"xlsx:{xlsx_path}:{sheet} col={col} (inverted) n={ser.size}"
-            else:
-                meta = f"xlsx:{xlsx_path}:{sheet} col={col} n={ser.size}"
-            inc = ser.fillna(1.0).to_numpy(dtype=float)
-            return inc, meta
-    except Exception:
-        pass
-    return None, "no CPI deflator found"
-
-def _price_levels_from_deflators(inc: np.ndarray, start_idx: int, years: int) -> np.ndarray:
-    """From monthly deflators `inc`, build per-year price levels for a window starting at `start_idx`.
-    level[0] = 1.0; for t>=1, level[t] = level[t-1] * inc[start_idx + (t-1)*12].
-    """
-    Y = int(max(0, years))
-    lev = np.ones(Y, dtype=float)
-    if inc is None or Y <= 1:
-        return lev
-    N = inc.size
-    for t in range(1, Y):
-        idx = start_idx + (t - 1) * 12
-        if 0 <= idx < N and np.isfinite(inc[idx]) and float(inc[idx]) > 0.0:
-            lev[t] = lev[t-1] * float(inc[idx])
-        else:
-            lev[t] = lev[t-1]
-    return lev
-
 def build_payment_vector(price: float, initial_down: float, apr_pct: float, years_term: int, replace_freq: int,
                          horizon_years: int, d1: float, d2_5: float, d6_10: float, d11p: float,
-                         apply_residual: bool) -> tuple[np.ndarray, int, int | None]:
-    """Return (annual_payment_vector, num_cars, last_start_year)."""
-    Y = int(max(0, horizon_years))
-    vec = np.zeros(Y, dtype=float)
-    if Y == 0:
-        return vec, 0, None
-    t = 0
-    num_cars = 0
-    last_start = None
-    down_next = float(max(0.0, initial_down))
-    while t < Y:
-        num_cars += 1
-        last_start = t
-        financed_amt = max(0.0, float(price) - down_next)
-        if financed_amt > 0 and years_term > 0:
-            ann_pmt = pmt(financed_amt, apr_pct, years_term) * 12.0
-            end_y = min(Y, t + int(years_term))
-            vec[t:end_y] += ann_pmt
-        hold = min(int(replace_freq), Y - t)
-        res = residual_value(price, hold, d1, d2_5, d6_10, d11p) if apply_residual else 0.0
-        t += int(replace_freq)
-        down_next = float(max(0.0, res))
-    return vec, num_cars, last_start
+                         apply_residual: bool,
+                         cpi_index: np.ndarray | list[float] | None = None) -> tuple[np.ndarray, int, int | None]:
+    """Return (annual_payment_vector, num_cars, last_start_year).
 
-# Variant: build_payment_vector_with_levels
-def build_payment_vector_with_levels(price: float, initial_down: float, apr_pct: float, years_term: int,
-                                     replace_freq: int, horizon_years: int, d1: float, d2_5: float,
-                                     d6_10: float, d11p: float, apply_residual: bool,
-                                     price_levels: np.ndarray | None) -> tuple[np.ndarray, int, int | None]:
-    """Same as build_payment_vector, but multiplies the base `price` by `price_levels[year]` at each purchase year."""
+    If `cpi_index` is provided, it must be a per-year *price level* index with level[0] == 1.0.
+    Each vehicle purchased at year t uses sticker price = base_price * cpi_index[t].
+    Residual values are computed from the inflated sticker price and then carried forward (nominal) as next down payment.
+    """
     Y = int(max(0, horizon_years))
     vec = np.zeros(Y, dtype=float)
     if Y == 0:
         return vec, 0, None
-    def _plv(t: int) -> float:
-        if price_levels is None or t >= len(price_levels):
+
+    def _lev(t: int) -> float:
+        if cpi_index is None:
             return 1.0
-        v = float(price_levels[t])
-        return v if v > 0 else 1.0
+        try:
+            v = float(cpi_index[t])
+            return v if v > 0 else 1.0
+        except Exception:
+            return 1.0
+
     t = 0
     num_cars = 0
     last_start = None
     down_next = float(max(0.0, initial_down))
+
     while t < Y:
         num_cars += 1
         last_start = t
-        sticker_t = float(max(0.0, price)) * _plv(t)
+
+        sticker_t = float(max(0.0, price)) * _lev(t)
         financed_amt = max(0.0, sticker_t - down_next)
+
         if financed_amt > 0 and years_term > 0:
             ann_pmt = pmt(financed_amt, apr_pct, years_term) * 12.0
             end_y = min(Y, t + int(years_term))
             vec[t:end_y] += ann_pmt
+
         hold = min(int(replace_freq), Y - t)
-        res = residual_value(sticker_t, hold, d1, d2_5, d6_10, d11p) if apply_residual else 0.0
+        res = 0.0
+        if apply_residual and hold > 0 and sticker_t > 0.0:
+            res = residual_value(sticker_t, hold, d1, d2_5, d6_10, d11p)
+
         t += int(replace_freq)
         down_next = float(max(0.0, res))
+
     return vec, num_cars, last_start
 
 # ---------------------------
@@ -728,38 +646,17 @@ if int(years) > 0:
 
     # Auto payments schedule (both buyers) and invested difference
     if has_auto:
-        # If CPI deflators are loaded, show a representative schedule using CPI‑escalated stickers
-        # Choose the earliest window start (index 0) as the nominal schedule reference
-        if 'inc_arr' in locals() and inc_arr is not None:
-            lev_sched = _price_levels_from_deflators(inc_arr, start_idx=0, years=_n_years)
-            non_vec_sched, _, _ = build_payment_vector_with_levels(
-                price=float(non_price), initial_down=float(non_down), apr_pct=float(non_rate), years_term=int(non_term),
-                replace_freq=int(non_replace), horizon_years=_n_years, d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev_sched
-            )
-            frugal_vec_sched, _, _ = build_payment_vector_with_levels(
-                price=float(frugal_price), initial_down=float(frugal_down), apr_pct=float(frugal_rate), years_term=int(frugal_term),
-                replace_freq=int(frugal_replace), horizon_years=_n_years, d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev_sched
-            )
-            contrib_sched = np.maximum(0.0, non_vec_sched - frugal_vec_sched)
-        else:
-            non_vec_sched = non_vec[:_n_years] if non_vec.size >= _n_years else np.zeros(_n_years, dtype=float)
-            frugal_vec_sched = frugal_vec[:_n_years] if frugal_vec.size >= _n_years else np.zeros(_n_years, dtype=float)
-            contrib_sched = auto_contribs[:_n_years] if auto_contribs.size >= _n_years else np.zeros(_n_years, dtype=float)
-
         auto_sched_df = pd.DataFrame({
             "Year": year_idx,
-            "Non-frugal Payment ($/yr)": non_vec_sched,
-            "Frugal Payment ($/yr)": frugal_vec_sched,
-            "Invested Difference ($/yr)": contrib_sched,
+            "Non-frugal Payment ($/yr)": non_vec[:_n_years] if non_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
+            "Frugal Payment ($/yr)": frugal_vec[:_n_years] if frugal_vec.size >= _n_years else np.zeros(_n_years, dtype=float),
+            "Invested Difference ($/yr)": auto_contribs[:_n_years] if auto_contribs.size >= _n_years else np.zeros(_n_years, dtype=float),
         })
         auto_sched_disp = auto_sched_df.copy()
         for col in ["Non-frugal Payment ($/yr)", "Frugal Payment ($/yr)", "Invested Difference ($/yr)"]:
             auto_sched_disp[col] = auto_sched_disp[col].map(lambda v: f"${v:,.0f}")
         if section_toggle("Auto — Year-by-Year Payment Difference"):
             st.subheader("Frugal Contributions from Payment Difference in Auto Payments (Year by Year)")
-            st.caption("Schedule reflects CPI‑escalated sticker prices when CPI deflators are available; otherwise shows baseline payments.")
             st.dataframe(auto_sched_disp, use_container_width=True)
         # st.download_button("Download auto payments schedule (CSV)", data=auto_sched_df.to_csv(index=False).encode("utf-8"), file_name=f"frugal_auto_payments_schedule_{_n_years}y.csv", mime="text/csv")
 
@@ -819,45 +716,74 @@ if int(years) > 0:
 # ==============================================
 # Opportunity Cost — Auto Payments Invested (Min & Median by Allocation)
 # ==============================================
-# Attempt to load CPI deflators for auto sticker escalation
-inc_arr, inc_meta = _load_increase_deflators()
-if inc_arr is None:
-    st.caption(f"CPI deflators: {inc_meta}")
-else:
-    st.caption(f"CPI deflators loaded → {inc_meta}")
-
 if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
     rows_auto = []
     raw_rows_auto = []
 
-    def _fv_for_windows(df_windows: pd.DataFrame) -> np.ndarray:
+    # Load deflator series (increase_factor) and build window-specific price levels
+    # increase_factor < 1 is a deflator; price level grows as 1 / increase_factor
+    try:
+        import pandas as _pd
+        _xls_path = "cpi_factors.xlsx"
+        _inc_sheet = "none"
+        try:
+            _df_inc = _pd.read_excel(_xls_path, sheet_name="increase_factors")
+            _inc_sheet = "increase_factors"
+        except Exception:
+            _df_inc = _pd.read_excel(_xls_path, sheet_name="cpi_increase")
+            _inc_sheet = "cpi_increase"
+        inc_arr = _pd.to_numeric(_df_inc.get("increase_factor"), errors="coerce").dropna().values.astype(float)
+        _have_inc = inc_arr.size > 0
+    except Exception:
+        inc_arr = np.array([], dtype=float)
+        _have_inc = False
+        _inc_sheet = "none"
+
+    def _price_levels_for_window(start_idx: int, yrs: int) -> np.ndarray:
+        lev = np.ones(int(yrs), dtype=float)
+        if not _have_inc:
+            return lev
+        for t in range(1, int(yrs)):
+            idx = start_idx + (t - 1) * 12
+            if 0 <= idx < inc_arr.size and inc_arr[idx] not in (0.0, np.nan):
+                try:
+                    lev[t] = lev[t - 1] / float(inc_arr[idx])  # deflator -> price level
+                except Exception:
+                    lev[t] = lev[t - 1]
+            else:
+                lev[t] = lev[t - 1]
+        return lev
+
+    def _fv_series_for(df_windows: pd.DataFrame) -> np.ndarray:
         if df_windows.empty:
             return np.array([], dtype=float)
         fvs = []
         for start_idx, window in zip(df_windows["start_index"].values.astype(int), df_windows["factors"].values):
-            # Yearly price levels from monthly deflators (if available)
-            lev = _price_levels_from_deflators(inc_arr, int(start_idx), int(years)) if inc_arr is not None else np.ones(int(years), dtype=float)
-            # Build spender/frugal annual payment vectors with sticker escalation at purchase years
-            vec_non_w, _, _ = build_payment_vector_with_levels(
+            levs = _price_levels_for_window(start_idx, years)
+            vec_non, _, _ = build_payment_vector(
                 price=float(non_price), initial_down=float(non_down), apr_pct=float(non_rate), years_term=int(non_term),
-                replace_freq=int(non_replace), horizon_years=int(years), d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev
+                replace_freq=int(non_replace), horizon_years=int(years),
+                d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
+                apply_residual=bool(apply_residual_dp),
+                cpi_index=levs
             )
-            vec_fr_w,  _, _ = build_payment_vector_with_levels(
+            vec_fr,  _, _ = build_payment_vector(
                 price=float(frugal_price), initial_down=float(frugal_down), apr_pct=float(frugal_rate), years_term=int(frugal_term),
-                replace_freq=int(frugal_replace), horizon_years=int(years), d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                apply_residual=bool(apply_residual_dp), price_levels=lev
+                replace_freq=int(frugal_replace), horizon_years=int(years),
+                d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
+                apply_residual=bool(apply_residual_dp),
+                cpi_index=levs
             )
-            contrib_w = np.maximum(0.0, vec_non_w - vec_fr_w)
-            fvs.append(variable_annuity_fv_from_window(window, contrib_w, timing="end"))
+            contrib = np.maximum(0.0, vec_non - vec_fr)
+            fvs.append(variable_annuity_fv_from_window(window, contrib, timing="end"))
         return np.asarray(fvs, dtype=float)
 
     for alloc in common_allocs:
         sims_g = build_windows(df_glob, alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
         sims_s = build_windows(df_spx,  alloc, years, step=12, fee_mult_per_step=fee_mult_per_step_spx)
 
-        fv_g = _fv_for_windows(sims_g)
-        fv_s = _fv_for_windows(sims_s)
+        fv_g = _fv_series_for(sims_g)
+        fv_s = _fv_series_for(sims_s)
 
         g_min = float(np.nanmin(fv_g)) if fv_g.size else np.nan
         g_med = float(np.nanmedian(fv_g)) if fv_g.size else np.nan
@@ -886,18 +812,17 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
         "Global Median Ending Value",
         "SPX Median Ending Value",
     ]]
+    st.caption(f"CPI source for autos: {_inc_sheet} (increase_factor count: {int(inc_arr.size) if 'inc_arr' in locals() else 0})")
     if section_toggle("Auto Payments Invested — Min & Median by Allocation"):
         st.subheader("Opportunity Cost — Auto Payments Invested (Min & Median by Allocation)")
-        st.caption("Auto sticker prices are escalated by monthly deflators every 12 months (start, +12, +24, +36, …) per historical window; the payment difference is invested using real returns.")
+        st.caption("Auto sticker prices are escalated by CPI (increase_factor) at each purchase year for every historical window; the payment difference is invested using real returns.")
         st.dataframe(result_auto_df, use_container_width=True)
-
-        # --- Audit: inspect one historical window (Auto CPI + Payments) ---
+        # --- Audit: inspect one window ---
         if section_toggle("Audit — Auto CPI (per window)"):
             try:
-                # Select allocation to build windows for audit
+                # Build windows for a selectable allocation
                 alloc_opts = common_allocs
                 alloc_sel = st.selectbox("Allocation for audit", options=alloc_opts, index=0, key="auto_audit_alloc")
-
                 sims_a = build_windows(df_glob, alloc_sel, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
                 if sims_a.empty:
                     st.info("No historical windows available for audit.")
@@ -906,19 +831,33 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                     w_idx = st.slider("Window index (0 = earliest start)", 0, max_i, 0, key="auto_audit_window")
                     start_idx = int(sims_a.iloc[w_idx]["start_index"])  # begin-month index
 
-                    # Build yearly price levels for this window from monthly deflators (if available)
-                    lev = _price_levels_from_deflators(inc_arr, start_idx, int(years)) if inc_arr is not None else np.ones(int(years), dtype=float)
+                    # Recreate price levels for this window
+                    lev = np.ones(int(years), dtype=float)
+                    if _have_inc:
+                        for t in range(1, int(years)):
+                            idx = start_idx + (t - 1) * 12
+                            if 0 <= idx < inc_arr.size and inc_arr[idx] not in (0.0, np.nan):
+                                try:
+                                    lev[t] = lev[t - 1] / float(inc_arr[idx])
+                                except Exception:
+                                    lev[t] = lev[t - 1]
+                            else:
+                                lev[t] = lev[t - 1]
 
-                    # Build nominal payment vectors for this window (spender/frugal)
-                    vec_non_a, _, _ = build_payment_vector_with_levels(
+                    # Build nominal payment vectors for this window
+                    vec_non_a, _, _ = build_payment_vector(
                         price=float(non_price), initial_down=float(non_down), apr_pct=float(non_rate), years_term=int(non_term),
-                        replace_freq=int(non_replace), horizon_years=int(years), d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                        apply_residual=bool(apply_residual_dp), price_levels=lev
+                        replace_freq=int(non_replace), horizon_years=int(years),
+                        d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
+                        apply_residual=bool(apply_residual_dp),
+                        cpi_index=lev
                     )
-                    vec_fr_a,  _, _ = build_payment_vector_with_levels(
+                    vec_fr_a, _, _ = build_payment_vector(
                         price=float(frugal_price), initial_down=float(frugal_down), apr_pct=float(frugal_rate), years_term=int(frugal_term),
-                        replace_freq=int(frugal_replace), horizon_years=int(years), d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
-                        apply_residual=bool(apply_residual_dp), price_levels=lev
+                        replace_freq=int(frugal_replace), horizon_years=int(years),
+                        d1=dep_y1, d2_5=dep_y2_5, d6_10=dep_y6_10, d11p=dep_y11p,
+                        apply_residual=bool(apply_residual_dp),
+                        cpi_index=lev
                     )
                     contrib_a = np.maximum(0.0, vec_non_a - vec_fr_a)
 
@@ -938,28 +877,6 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                         "Frugal Payment ($/yr)": vec_fr_a,
                         "Invested Difference ($/yr)": contrib_a,
                     })
-
-                    # Build a compact table of purchase events and sticker prices
-                    non_events = pd.DataFrame({
-                        "Buyer": "Non-frugal",
-                        "Year": yrs[non_buy],
-                        "Sticker (inflated)": non_sticker[non_buy],
-                    })
-                    fr_events = pd.DataFrame({
-                        "Buyer": "Frugal",
-                        "Year": yrs[fr_buy],
-                        "Sticker (inflated)": fr_sticker[fr_buy],
-                    })
-                    events_df = pd.concat([non_events, fr_events], ignore_index=True)
-                    events_df = events_df.sort_values(["Year", "Buyer"]).reset_index(drop=True)
-
-                    # Display purchase events first
-                    events_disp = events_df.copy()
-                    events_disp["Sticker (inflated)"] = events_disp["Sticker (inflated)"].map(lambda v: f"${v:,.0f}")
-                    st.subheader("Purchase Events — Sticker Prices at Each Replacement Year")
-                    st.caption("This uses the selected window's CPI deflators: start, +12, +24, …")
-                    st.dataframe(events_disp, use_container_width=True)
-
                     disp = audit_df.copy()
                     for c in [
                         "Non-frugal Sticker (inflated)", "Frugal Sticker (inflated)",
@@ -970,7 +887,6 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                     disp["CPI level"] = disp["CPI level"].map(lambda v: f"{float(v):.6f}")
 
                     st.dataframe(disp, use_container_width=True)
-                    st.caption("Use the **Window index** slider above to choose the starting period; tables update to that start.")
             except Exception as _e:
                 st.info(f"Audit unavailable: {_e}")
 
