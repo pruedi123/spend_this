@@ -972,37 +972,42 @@ if years > 0 and (float(non_price) > 0 or float(frugal_price) > 0):
                     st.dataframe(disp, use_container_width=True)
                     st.caption("Use the **Window index** slider above to choose the starting period; tables update to that start.")
 
-                    # --- Ending values for this window and selected allocation (Global & SPX) ---
+                    # --- Ending values for this window across allocations (Global & SPX) ---
                     try:
-                        contrib_win = contrib_a  # use the contribution stream already built for this window
+                        vals_g = []
+                        vals_s = []
+                        # Precompute (or reuse) the contribution stream for this window (already contrib_a)
+                        contrib_win = contrib_a
+                        # For every allocation, get the factors window that matches this start_idx
+                        for alloc_x in common_allocs:
+                            sims_g_x = build_windows(df_glob, alloc_x, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
+                            row_g = sims_g_x.loc[sims_g_x["start_index"] == start_idx]
+                            if not row_g.empty:
+                                f_g = np.asarray(row_g.iloc[0]["factors"], dtype=float)
+                                vals_g.append(variable_annuity_fv_from_window(f_g, contrib_win, timing="end"))
 
-                        # GLOBAL for selected allocation
-                        sims_g_sel = build_windows(df_glob, alloc_sel, years, step=12, fee_mult_per_step=fee_mult_per_step_glob)
-                        row_g_sel = sims_g_sel.loc[sims_g_sel["start_index"] == start_idx]
-                        val_g = np.nan
-                        if not row_g_sel.empty:
-                            f_g_sel = np.asarray(row_g_sel.iloc[0]["factors"], dtype=float)
-                            val_g = variable_annuity_fv_from_window(f_g_sel, contrib_win, timing="end")
+                            sims_s_x = build_windows(df_spx,  alloc_x, years, step=12, fee_mult_per_step=fee_mult_per_step_spx)
+                            row_s = sims_s_x.loc[sims_s_x["start_index"] == start_idx]
+                            if not row_s.empty:
+                                f_s = np.asarray(row_s.iloc[0]["factors"], dtype=float)
+                                vals_s.append(variable_annuity_fv_from_window(f_s, contrib_win, timing="end"))
 
-                        # SPX for selected allocation
-                        sims_s_sel = build_windows(df_spx, alloc_sel, years, step=12, fee_mult_per_step=fee_mult_per_step_spx)
-                        row_s_sel = sims_s_sel.loc[sims_s_sel["start_index"] == start_idx]
-                        val_s = np.nan
-                        if not row_s_sel.empty:
-                            f_s_sel = np.asarray(row_s_sel.iloc[0]["factors"], dtype=float)
-                            val_s = variable_annuity_fv_from_window(f_s_sel, contrib_win, timing="end")
+                        # Compute min/median if we collected any values
+                        g_min_win = float(np.nanmin(vals_g)) if len(vals_g) else np.nan
+                        g_med_win = float(np.nanmedian(vals_g)) if len(vals_g) else np.nan
+                        s_min_win = float(np.nanmin(vals_s)) if len(vals_s) else np.nan
+                        s_med_win = float(np.nanmedian(vals_s)) if len(vals_s) else np.nan
 
-                        sel_stats_df = pd.DataFrame([
-                            {"Portfolio": "Global", "Allocation": alloc_sel, "Ending Value (Selected Allocation)": val_g},
-                            {"Portfolio": "SPX",    "Allocation": alloc_sel, "Ending Value (Selected Allocation)": val_s},
+                        win_stats_df = pd.DataFrame([
+                            {"Portfolio": "Global", "Minimum Ending Value": g_min_win, "Median Ending Value": g_med_win},
+                            {"Portfolio": "SPX",    "Minimum Ending Value": s_min_win, "Median Ending Value": s_med_win},
                         ])
-                        sel_stats_disp = sel_stats_df.copy()
-                        sel_stats_disp["Ending Value (Selected Allocation)"] = sel_stats_disp["Ending Value (Selected Allocation)"].map(
-                            lambda v: ("n/a" if not np.isfinite(float(v)) else f"${float(v):,.0f}")
-                        )
-                        st.subheader("Ending Values — Selected Window & Allocation")
-                        st.caption("For the chosen starting period **and** selected allocation, ending values are shown for Global and SPX.")
-                        st.dataframe(sel_stats_disp, use_container_width=True)
+                        win_stats_disp = win_stats_df.copy()
+                        for c in ["Minimum Ending Value", "Median Ending Value"]:
+                            win_stats_disp[c] = win_stats_disp[c].map(lambda v: ("n/a" if not np.isfinite(float(v)) else f"${float(v):,.0f}"))
+                        st.subheader("Ending Values — Selected Window (Across Allocations)")
+                        st.caption("For the chosen starting period, we evaluate every allocation and summarize the minimum and median ending values.")
+                        st.dataframe(win_stats_disp, use_container_width=True)
                     except Exception as _e2:
                         st.info(f"Per-window ending values unavailable: {_e2}")
             except Exception as _e:
